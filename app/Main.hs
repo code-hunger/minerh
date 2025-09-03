@@ -21,6 +21,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
+import Control.Monad (when)
 import Data.Tuple (swap)
 
 -- main = mapM_ (putStr . printBoard) (take 5 boards)
@@ -52,7 +53,7 @@ main = do
 -- pure $ Just $ Vty.picForImage $ Vty.string defAttr (show e)
 
 size :: BoardSize
-size = BoardSize{cols = 40, rows = 20}
+size = BoardSize{cols = 100, rows = 90}
 
 startingPos :: (Int, Int)
 startingPos = (23, 0)
@@ -164,7 +165,11 @@ movePlayer pos dir board = do
         then do
             nextBlock <- readArray board (swap nextPos)
             case nextBlock of
-                Air -> pure nextPos
+                Air -> do
+                    thisBlock <- readArray board (swap pos)
+                    when (dir == GoUp && thisBlock == Air) $
+                        writeArray board (swap pos) Stairs
+                    pure nextPos
                 Dirt -> do
                     writeArray board (swap nextPos) Air
                     case dir of
