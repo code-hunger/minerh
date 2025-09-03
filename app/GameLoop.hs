@@ -13,7 +13,7 @@ loop :: IO a -> (Event a -> IO Bool) -> IO ()
 loop nextEvent handleEvent = do
     eventQ <- TQ.newTQueueIO
 
-    inputEventThread <- Async.async . forever . atomically . TQ.writeTQueue eventQ =<< nextEvent
+    inputEventThread <- Async.async . forever $ atomically . TQ.writeTQueue eventQ =<< nextEvent
 
     let eventOrTick tickTimer =
             atomically $
