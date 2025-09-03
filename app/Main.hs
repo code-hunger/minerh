@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -9,7 +8,7 @@ import VtyPlay (UserEvent (..), runGame)
 import Control.Monad.State (MonadIO (liftIO), MonadState (state), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put)
 import Data.Array (Array, Ix (inRange))
-import Data.Array.Base (IArray (bounds), MArray (getBounds), elems, getElems, readArray, writeArray)
+import Data.Array.Base (IArray (bounds), MArray (getBounds), elems, readArray, writeArray)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
@@ -21,6 +20,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
+import qualified Board (lines)
 import Control.Monad (when)
 import Data.Tuple (swap)
 
@@ -74,7 +74,7 @@ startingBoard = do
     return b
 
 boardToImage :: (Show b, MArray a b m) => a (Int, Int) b -> m Vty.Image
-boardToImage board = mconcat . fmap printLine <$> chunkRows board
+boardToImage board = mconcat . fmap printLine <$> Board.lines board
   where
     printLine :: (Show b) => [b] -> Vty.Image
     printLine = Vty.utf8String Vty.defAttr . stringToUtf8 . concatMap show
@@ -111,19 +111,6 @@ chunkRows' array = go (elems array)
     width =
         let ((_, xmin), (_, xmax)) = bounds array
          in xmax - xmin + 1
-
-chunkRows :: (MArray a b m) => a (Int, Int) b -> m [[b]]
-chunkRows array = do
-    width <- getWidth array
-
-    let go [] = []
-        go xs =
-            let (h, t) = splitAt width xs
-             in h : go t
-    go <$> getElems array
-  where
-    getWidth = fmap boundsToWidth . getBounds
-    boundsToWidth ((_, xmin), (_, xmax)) = xmax - xmin + 1
 
 weigh :: (RandomGen g) => CellUpdater g Block
 weigh current neighbours =

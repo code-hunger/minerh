@@ -1,22 +1,22 @@
 module BoardGen where
 
-import Data.Array.MArray (MArray, getAssocs, getBounds, readArray, writeArray)
+import Data.Array.MArray (MArray)
 
-import Control.Monad (forM_, guard)
+import Control.Monad (filterM, guard)
 import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
-import Data.Array (Array, inRange)
+import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray)
 
+import Board (Board (..), Coord (Coord), MBoard (..))
 import Control.Monad.State (MonadTrans (lift), State, StateT, execStateT, runState)
 import qualified Control.Monad.State as S (MonadState (get, put))
+import Data.Foldable (traverse_)
 import System.Random (RandomGen)
 
-type CellUpdater g b = (b -> [b] -> State g b)
+type CellUpdater g a = (a -> [a] -> State g a)
 
 data BoardSize = BoardSize {rows :: Int, cols :: Int}
-
--- data Coord = Coord {x :: Int, y :: Int}
 
 makePureBoards ::
     forall g b.
@@ -38,33 +38,34 @@ makePureBoards size g defBlock weigh = runST $ do
 
 nextBoard ::
     forall g a b m.
-    (RandomGen g, MArray a b m) =>
-    a (Int, Int) b ->
-    CellUpdater g b ->
+    (RandomGen g, MBoard b m a) =>
+    b ->
+    CellUpdater g a ->
     StateT g m ()
-nextBoard board weigh = do
-    assocs <- lift $ getAssocs board
-    forM_ assocs $ updateCell . fst
+nextBoard board weigh = traverse_ updateCell =<< lift (indices board)
   where
-    updateCell :: (Int, Int) -> StateT g m ()
+    updateCell :: Coord -> StateT g m ()
     updateCell i = do
-        nbs <- lift $ getNeighbours i board
-        val <- lift $ readArray board i
+        cellValue <- lift $ board ! i
+        neighbours <- lift $ getNeighbours i board
         g <- S.get
-        let (res, g') = runState (weigh val nbs) g
+        let (res, g') = runState (weigh cellValue neighbours) g
         S.put g'
-        lift $ writeArray board i res
+        lift $ write board i res
 
-getNeighbours :: (MArray a b m) => (Int, Int) -> a (Int, Int) b -> m [b]
-getNeighbours (i, j) board = do
-    bounds <- getBounds board
-    let inBounds = inRange bounds
-    sequence $ do
+getNeighbours :: forall b m a. (MBoard b m a) => Coord -> b -> m [a]
+getNeighbours pos board = traverse (board !) =<< validNeighbourIndices
+  where
+    validNeighbourIndices :: m [Coord]
+    validNeighbourIndices = filterM (hasIndex board) neighbourIndices
+
+    neighbourIndices :: [Coord]
+    neighbourIndices = do
+        let (Coord i j) = pos
         i' <- [i - 1 .. i + 1]
         j' <- [j - 1 .. j + 1]
         guard $ (i', j') /= (i, j)
-        guard $ inBounds (i', j')
-        pure $ readArray board (i', j')
+        pure (Coord i' j')
 
 initBoard :: forall m a b. (MArray a b m) => b -> BoardSize -> m (a (Int, Int) b)
 initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
