@@ -5,24 +5,26 @@ module VtyPlay (runGame, UserEvent (..)) where
 import qualified Graphics.Vty as Vty
 import Graphics.Vty.Platform.Unix (mkVty)
 
+import Control.Monad.IO.Class (MonadIO (liftIO))
+
 import GameLoop (Event (InputEvent, Tick), loop)
 
-runGame :: UserLogic -> IO ()
+runGame :: (MonadIO m) => UserLogic m -> m ()
 runGame f = do
-    vty <- mkVty Vty.defaultConfig
+    vty <- liftIO $ mkVty Vty.defaultConfig
 
-    Vty.setWindowTitle vty "Miner V"
+    liftIO $ Vty.setWindowTitle vty "Miner V"
 
     loop (Vty.nextEvent vty) (handleEvent f vty)
 
-    Vty.shutdown vty
-    putStrLn "Game over!"
+    liftIO $ Vty.shutdown vty
+    liftIO $ putStrLn "Game over!"
 
 data UserEvent = UTick | KEsc | KDown | KLeft | KUp | KRight | Other
 
-type UserLogic = UserEvent -> IO (Maybe Vty.Picture)
+type UserLogic m = UserEvent -> m (Maybe Vty.Picture)
 
-handleEvent :: UserLogic -> Vty.Vty -> Event Vty.Event -> IO Bool
+handleEvent :: (MonadIO m) => UserLogic m -> Vty.Vty -> Event Vty.Event -> m Bool
 handleEvent f vty e = do
     let ue = case e of
             Tick -> UTick
@@ -36,5 +38,5 @@ handleEvent f vty e = do
     f ue >>= \case
         Nothing -> pure False
         Just picture -> do
-            Vty.update vty picture
+            liftIO $ Vty.update vty picture
             pure True

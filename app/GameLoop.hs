@@ -6,26 +6,29 @@ import qualified Control.Concurrent.Async as Async (Async, async, cancel)
 import Control.Concurrent.STM (atomically, check, orElse, readTVar, registerDelay)
 
 import qualified Control.Concurrent.STM.TQueue as TQ
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import GHC.Conc.Sync (TVar)
 
 data Event e = Tick | InputEvent e
 
-loop :: IO a -> (Event a -> IO Bool) -> IO ()
+loop :: forall m a. (MonadIO m) => IO a -> (Event a -> m Bool) -> m ()
 loop nextEvent handleEvent = do
-    eventQ <- TQ.newTQueueIO
+    eventQ <- liftIO TQ.newTQueueIO
 
-    inputEventThread <- Async.async . forever $ atomically . TQ.writeTQueue eventQ =<< nextEvent
+    inputEventThread <- liftIO $ Async.async . forever $ atomically . TQ.writeTQueue eventQ =<< nextEvent
 
     let eventOrTick tickTimer =
-            atomically $
+            liftIO . atomically $
                 readEvent `orElse` tick
           where
             readEvent = InputEvent <$> TQ.readTQueue eventQ
             tick = readTVar tickTimer >>= check >> pure Tick
 
-        registerTick = registerDelay 1000000
+        registerTick = liftIO $ registerDelay 1000000 :: m (TVar Bool)
 
+        go :: TVar Bool -> m ()
         go tickTimer = do
-            e <- eventOrTick tickTimer
+            e <- liftIO $ eventOrTick tickTimer
             shouldContinue <- handleEvent e
             when shouldContinue $
                 case e of
@@ -36,4 +39,4 @@ loop nextEvent handleEvent = do
 
     () <- go =<< registerTick
 
-    Async.cancel inputEventThread
+    liftIO $ Async.cancel inputEventThread
