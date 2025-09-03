@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TupleSections #-}
 
 module Board (Board (..), MBoard (..), Coord (..)) where
 
@@ -12,6 +13,11 @@ class (Monad m) => Board b m e | b -> e where
     lines :: b -> m [[e]]
     hasIndex :: b -> Coord -> m Bool
     indices :: b -> m [Coord]
+
+    elems :: b -> m [(Coord, e)]
+    elems b = indices b >>= traverse coupleValue
+      where
+        coupleValue i = (i,) <$> (b ! i :: m e)
 
 class (Board b m e) => MBoard b m e where
     write :: b -> Coord -> e -> m ()

@@ -112,7 +112,7 @@ chunkRows' array = go (elems array)
         let ((_, xmin), (_, xmax)) = bounds array
          in xmax - xmin + 1
 
-weigh :: (RandomGen g) => CellUpdater g Block
+weigh :: (RandomGen g) => CellUpdater m g Block
 weigh current neighbours =
     state (uniformR @Double (0, 1)) >>= \r ->
         let stones = countStones neighbours

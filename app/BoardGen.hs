@@ -2,19 +2,18 @@ module BoardGen where
 
 import Data.Array.MArray (MArray)
 
-import Control.Monad (filterM, guard)
+import Control.Monad (filterM, guard, join, liftM2)
 import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray)
 
 import Board (Board (..), Coord (Coord), MBoard (..))
-import Control.Monad.State (MonadTrans (lift), State, StateT, execStateT, runState)
-import qualified Control.Monad.State as S (MonadState (get, put))
+import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
 import Data.Foldable (traverse_)
 import System.Random (RandomGen)
 
-type CellUpdater g a = (a -> [a] -> State g a)
+type CellUpdater m s a = (Monad m) => (a -> [a] -> StateT s m a)
 
 data BoardSize = BoardSize {rows :: Int, cols :: Int}
 
@@ -24,7 +23,7 @@ makePureBoards ::
     BoardSize ->
     g ->
     b ->
-    CellUpdater g b ->
+    (forall m. CellUpdater m g b) ->
     [Array (Int, Int) b]
 makePureBoards size g defBlock weigh = runST $ do
     board <- initBoard defBlock size :: (forall s. ST s (STArray s (Int, Int) b))
@@ -40,18 +39,15 @@ nextBoard ::
     forall g a b m.
     (RandomGen g, MBoard b m a) =>
     b ->
-    CellUpdater g a ->
+    CellUpdater m g a ->
     StateT g m ()
-nextBoard board weigh = traverse_ updateCell =<< lift (indices board)
+nextBoard board weigh = traverse_ updateCell =<< lift (elems board)
   where
-    updateCell :: Coord -> StateT g m ()
-    updateCell i = do
-        cellValue <- lift $ board ! i
-        neighbours <- lift $ getNeighbours i board
-        g <- S.get
-        let (res, g') = runState (weigh cellValue neighbours) g
-        S.put g'
-        lift $ write board i res
+    updateCell :: (Coord, a) -> StateT g m ()
+    updateCell (i, val) = lift . write board i =<< nextVal
+      where
+        neighbours = lift (getNeighbours i board)
+        nextVal = weigh val =<< neighbours
 
 getNeighbours :: forall b m a. (MBoard b m a) => Coord -> b -> m [a]
 getNeighbours pos board = traverse (board !) =<< validNeighbourIndices
@@ -70,3 +66,6 @@ getNeighbours pos board = traverse (board !) =<< validNeighbourIndices
 initBoard :: forall m a b. (MArray a b m) => b -> BoardSize -> m (a (Int, Int) b)
 initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
 initBoard c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
+
+bind2 :: (Monad m) => (a -> b -> m r) -> m a -> m b -> m r
+bind2 f a b = join $ liftM2 f a b
