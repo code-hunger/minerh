@@ -12,8 +12,6 @@ import Control.Monad.State (MonadTrans (lift), State, StateT, execStateT, runSta
 import qualified Control.Monad.State as S (MonadState (get, put))
 import System.Random (RandomGen)
 
-type Board s b = STArray s (Int, Int) b
-
 type CellUpdater g b = (b -> [b] -> State g b)
 
 data BoardSize = BoardSize {rows :: Int, cols :: Int}
@@ -72,6 +70,6 @@ initBoard :: forall m a b. (MArray a b m) => b -> BoardSize -> m (a (Int, Int) b
 initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
 initBoard c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
 
-initBoard' :: a -> BoardSize -> ST s (Board s a)
+initBoard' :: b -> BoardSize -> ST s (STArray s (Int, Int) b)
 initBoard' _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
 initBoard' c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
