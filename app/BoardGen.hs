@@ -1,15 +1,15 @@
 module BoardGen where
 
-import Data.Array.MArray (getAssocs, getBounds, readArray, writeArray)
-import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+import Data.Array.MArray (MArray, getAssocs, getBounds, readArray, writeArray)
 
 import Control.Monad (forM_, guard)
-import Control.Monad.ST.Lazy (ST, runST, strictToLazyST)
+import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array, inRange)
 import Data.Array.ST (STArray, freeze, newArray)
 
-import Control.Monad.State (State, runState)
+import Control.Monad.State (MonadTrans (lift), State, StateT, execStateT, runState)
+import qualified Control.Monad.State as S (MonadState (get, put))
 import System.Random (RandomGen)
 
 type Board s b = STArray s (Int, Int) b
@@ -27,31 +27,35 @@ makePureBoards ::
     CellUpdater g b ->
     [Array (Int, Int) b]
 makePureBoards size g defBlock weigh = runST $ do
-    gRef <- strictToLazyST $ newSTRef g
     board <- initBoard defBlock size
     let
         go = do
             a <- freeze board
-            nextBoard gRef board weigh
+            _ <- execStateT (nextBoard board weigh) g
             rest <- unsafeInterleaveST go
             pure (a : rest)
     go
 
-nextBoard :: (RandomGen g) => STRef s g -> Board s b -> CellUpdater g b -> ST s ()
-nextBoard gRef board weigh = do
-    assocs <- getAssocs board
+nextBoard ::
+    forall g a b m.
+    (RandomGen g, MArray a b m) =>
+    a BoardSize b ->
+    CellUpdater g b ->
+    StateT g m ()
+nextBoard board weigh = do
+    assocs <- lift $ getAssocs board
     forM_ assocs $ updateCell . fst
   where
+    updateCell :: BoardSize -> StateT g m ()
     updateCell i = do
-        nbs <- getNeighbours i board
-        strictToLazyST $ do
-            val <- readArray board i
-            g <- readSTRef gRef
-            let (res, g') = runState (weigh val nbs) g
-            writeSTRef gRef g'
-            writeArray board i res
+        nbs <- lift $ getNeighbours i board
+        val <- lift $ readArray board i
+        g <- S.get
+        let (res, g') = runState (weigh val nbs) g
+        S.put g'
+        lift $ writeArray board i res
 
-getNeighbours :: (Int, Int) -> Board s b -> ST s [b]
+getNeighbours :: (MArray a b m) => (Int, Int) -> a (Int, Int) b -> m [b]
 getNeighbours (i, j) board = do
     bounds <- getBounds board
     let inBounds = inRange bounds
