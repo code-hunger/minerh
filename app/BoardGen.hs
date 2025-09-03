@@ -16,7 +16,9 @@ type Board s b = STArray s (Int, Int) b
 
 type CellUpdater g b = (b -> [b] -> State g b)
 
-type BoardSize = (Int, Int)
+data BoardSize = BoardSize {rows :: Int, cols :: Int}
+
+-- data Coord = Coord {x :: Int, y :: Int}
 
 makePureBoards ::
     forall g b.
@@ -39,14 +41,14 @@ makePureBoards size g defBlock weigh = runST $ do
 nextBoard ::
     forall g a b m.
     (RandomGen g, MArray a b m) =>
-    a BoardSize b ->
+    a (Int, Int) b ->
     CellUpdater g b ->
     StateT g m ()
 nextBoard board weigh = do
     assocs <- lift $ getAssocs board
     forM_ assocs $ updateCell . fst
   where
-    updateCell :: BoardSize -> StateT g m ()
+    updateCell :: (Int, Int) -> StateT g m ()
     updateCell i = do
         nbs <- lift $ getNeighbours i board
         val <- lift $ readArray board i
@@ -67,9 +69,9 @@ getNeighbours (i, j) board = do
         pure $ readArray board (i', j')
 
 initBoard :: forall m a b. (MArray a b m) => b -> BoardSize -> m (a (Int, Int) b)
-initBoard _ (r, c) | r < 1 || c < 1 = error "initBoard expects positive rows and cols."
-initBoard c (rows, cols) = newArray ((0, 0), (rows - 1, cols - 1)) c
+initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
+initBoard c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
 
 initBoard' :: a -> BoardSize -> ST s (Board s a)
-initBoard' _ (r, c) | r < 1 || c < 1 = error "initBoard expects positive rows and cols."
-initBoard' c (rows, cols) = newArray ((0, 0), (rows - 1, cols - 1)) c
+initBoard' _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
+initBoard' c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c

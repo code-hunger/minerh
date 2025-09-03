@@ -20,7 +20,7 @@ runGame f = do
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
 
-data UserEvent = UTick | KEsc | KDown | KLeft | KUp | KRight | Other
+data UserEvent = UTick | KEsc | KQ | KDown | KLeft | KUp | KRight | Other deriving (Show)
 
 type UserLogic m = UserEvent -> m (Maybe Vty.Picture)
 
@@ -29,10 +29,15 @@ handleEvent f vty e = do
     let ue = case e of
             Tick -> UTick
             InputEvent (Vty.EvKey Vty.KEsc []) -> KEsc
+            InputEvent (Vty.EvKey (Vty.KChar 'q') []) -> KQ
             InputEvent (Vty.EvKey Vty.KDown []) -> KDown
+            InputEvent (Vty.EvKey (Vty.KChar 'j') []) -> KDown
             InputEvent (Vty.EvKey Vty.KUp []) -> KUp
+            InputEvent (Vty.EvKey (Vty.KChar 'k') []) -> KUp
             InputEvent (Vty.EvKey Vty.KRight []) -> KRight
+            InputEvent (Vty.EvKey (Vty.KChar 'l') []) -> KRight
             InputEvent (Vty.EvKey Vty.KLeft []) -> KLeft
+            InputEvent (Vty.EvKey (Vty.KChar 'h') []) -> KLeft
             InputEvent _ -> Other
 
     f ue >>= \case
