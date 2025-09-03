@@ -27,7 +27,7 @@ makePureBoards ::
     CellUpdater g b ->
     [Array (Int, Int) b]
 makePureBoards size g defBlock weigh = runST $ do
-    board <- initBoard defBlock size
+    board <- initBoard' defBlock size
     let
         go = do
             a <- freeze board
@@ -66,6 +66,10 @@ getNeighbours (i, j) board = do
         guard $ inBounds (i', j')
         pure $ readArray board (i', j')
 
-initBoard :: a -> BoardSize -> ST s (Board s a)
+initBoard :: forall m a b. (MArray a b m) => b -> BoardSize -> m (a (Int, Int) b)
 initBoard _ (r, c) | r < 1 || c < 1 = error "initBoard expects positive rows and cols."
 initBoard c (rows, cols) = newArray ((0, 0), (rows - 1, cols - 1)) c
+
+initBoard' :: a -> BoardSize -> ST s (Board s a)
+initBoard' _ (r, c) | r < 1 || c < 1 = error "initBoard expects positive rows and cols."
+initBoard' c (rows, cols) = newArray ((0, 0), (rows - 1, cols - 1)) c
