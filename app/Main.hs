@@ -10,16 +10,16 @@ import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import qualified Graphics.Vty as Vty
-
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (when)
+import Control.Monad (when, (>=>))
 
 main :: IO ()
 main = do
     board <- startingBoard
 
-    let update :: UserEvent -> StateT Coord IO (Maybe (IOArray (Int, Int) Block, Coord))
+    let update ::
+            UserEvent ->
+            StateT Coord IO (Maybe (IOArray (Int, Int) Block, Coord))
         update e = do
             p <- State.get
             let move dir = do
@@ -34,13 +34,10 @@ main = do
                 KLeft -> move GoLeft
                 KRight -> move GoRight
                 _ -> pure $ Just (board, p)
-        eh :: UserEvent -> StateT Coord IO (Maybe Vty.Picture)
-        eh e = do
-            Just state <- update e
-            picture <- lift $ draw state
-            return $ Just picture
 
-    flip evalStateT startingPos $ runGame eh
+    evalStateT
+        (runGame $ update >=> mapM (lift . draw))
+        startingPos
 
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
