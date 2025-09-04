@@ -22,25 +22,27 @@ fromCoordPair = bimap fromCoord fromCoord
 inRangeCoord :: (Coord, Coord) -> Coord -> Bool
 inRangeCoord bb i = fromCoordPair bb `inRange` fromCoord i
 
-class (Monad m) => Board b m e | b -> e where
-    (!) :: b -> Coord -> m e
-    lines :: b -> m [[e]]
-    bounds :: b -> m (Coord, Coord)
+-- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
+class (Monad m) => Board board m el | board -> el where
+    (!) :: board -> Coord -> m el
+    lines :: board -> m [[el]]
+    bounds :: board -> m (Coord, Coord)
 
-    indices :: b -> m [Coord]
+    indices :: board -> m [Coord]
     -- smells like a space leak if the whole list is computed before returned
     indices array = map toCoord . range . fromCoordPair <$> bounds array
 
-    hasIndex :: b -> Coord -> m Bool
+    hasIndex :: board -> Coord -> m Bool
     hasIndex array i = (`inRangeCoord` i) <$> bounds array
 
-    elems :: b -> m [(Coord, e)]
+    elems :: board -> m [(Coord, el)]
     elems b = indices b >>= traverse coupleValue
       where
-        coupleValue i = (i,) <$> (b ! i :: m e)
+        coupleValue i = (i,) <$> (b ! i :: m el)
 
-class (Board b m e) => MBoard b m e where
-    write :: b -> Coord -> e -> m ()
+-- A mutable board is a board that can be mutated
+class (Board board m el) => MBoard board m el where
+    write :: board -> Coord -> el -> m ()
 
 instance (MArray arr el m) => Board (arr (Int, Int) el) m el where
     array ! i = readArray array (y i, x i)
