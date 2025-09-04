@@ -4,16 +4,16 @@ import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoa
 import Vty.Core (UserEvent (..), runVty)
 import Vty.Draw (Block (..), draw)
 
-import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
+import Control.Monad.State (MonadIO (liftIO), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put, state)
 import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (forM, join, when, (<=<), (>=>))
+import Control.Monad (when)
 import Data.Maybe (isJust)
-import GameLoop (loop)
+import GameLoop (EventOrTick (..), loop)
 
 main :: IO ()
 main = do
@@ -38,12 +38,11 @@ main = do
                 _ -> pure $ Just (board, p)
 
     flip evalStateT startingPos $ runVty $ \eventStream toUserEvent render ->
-        loop eventStream $
-            fmap isJust
-                . mapM (liftIO . render)
-                <=< mapM (liftIO . draw)
-                <=< update
-                    . maybe UTick toUserEvent
+        let eventHandler e = do
+                state <- update e
+                picture <- mapM (liftIO . draw) state
+                isJust <$> mapM (liftIO . render) picture
+         in loop eventStream (eventHandler . \case Tick -> UTick; Event c -> toUserEvent c)
 
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
