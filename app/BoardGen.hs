@@ -26,7 +26,11 @@ makePureBoards ::
     (forall m. CellUpdater m g b) ->
     [Array (Int, Int) b]
 makePureBoards size g defBlock weigh = runST $ do
-    board <- initBoard defBlock size :: (forall s. ST s (STArray s (Int, Int) b))
+    board <-
+        initBoard defBlock size ::
+            -- type annotation is required here because initBoard is too general and GHC does not
+            -- know to instantiate the same `s` variable on both positions here.
+            (forall s. ST s (STArray s (Int, Int) b))
     let
         go = do
             a <- freeze board
