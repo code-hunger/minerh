@@ -11,8 +11,8 @@ import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (forM, forM_, when, (>=>))
-import Control.Monad.Extra (ifM, whenM)
+import Control.Monad (forM, when, (>=>))
+import Control.Monad.Extra (whenM)
 import Game (Block (..), Game (..))
 import GameLoop (EventOrTick (..), UpdateStatus (..), loop)
 
@@ -94,15 +94,12 @@ weigh current neighbours =
             switch _ = Air -- error "Can generate Dirt and Stone for now."
             next = if r < threshold then switch current else current
          in pure $ if next == Stone && r * 10 < threshold then Fire else next
+  where
+    count :: (a -> Bool) -> [a] -> Int
+    count xs f = length $ filter xs f
 
-count :: (a -> Bool) -> [a] -> Int
-count xs f = length $ filter xs f
-
-countStones :: [Block] -> Int
-countStones = count (== Stone)
-
-utf8block :: Char
-utf8block = '█'
+    countStones :: [Block] -> Int
+    countStones = count (== Stone)
 
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)

@@ -1,3 +1,5 @@
+{-# LANGUAGE NumericUnderscores #-}
+
 module GameLoop (loop, EventOrTick (..), UpdateStatus (..)) where
 
 import Control.Monad (forever, when)
@@ -13,6 +15,9 @@ data EventOrTick e = Tick | Event e
 
 data UpdateStatus = Live | Die
 
+frequency :: Int
+frequency = 50
+
 loop :: forall m e. (MonadIO m) => IO e -> (EventOrTick e -> m UpdateStatus) -> m ()
 loop nextEvent handleEvent = do
     eventQ <- liftIO TQ.newTQueueIO
@@ -25,7 +30,7 @@ loop nextEvent handleEvent = do
                     tick = readTVar tickTimer >>= check >> pure Tick
                  in readEvent `orElse` tick
 
-        registerTick = liftIO $ registerDelay 1000000 :: m (TVar Bool)
+        registerTick = liftIO $ registerDelay (1_000_000 `div` frequency) :: m (TVar Bool)
 
         go :: TVar Bool -> m ()
         go tickTimer = do
