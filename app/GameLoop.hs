@@ -21,10 +21,9 @@ loop nextEvent handleEvent = do
 
     let eventOrTick tickTimer =
             liftIO . atomically $
-                readEvent `orElse` tick
-          where
-            readEvent = Event <$> TQ.readTQueue eventQ
-            tick = readTVar tickTimer >>= check >> pure Tick
+                let readEvent = Event <$> TQ.readTQueue eventQ
+                    tick = readTVar tickTimer >>= check >> pure Tick
+                 in readEvent `orElse` tick
 
         registerTick = liftIO $ registerDelay 1000000 :: m (TVar Bool)
 
