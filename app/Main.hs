@@ -8,7 +8,6 @@ import VtyPlay (UserEvent (..), runGame)
 import Control.Monad.State (MonadIO (liftIO), MonadState (state), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put)
 import Data.Array (Array)
-import Data.Array.Base (IArray (bounds), MArray, elems)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
@@ -99,17 +98,6 @@ boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt we
 
 stringToUtf8 :: String -> [Word8]
 stringToUtf8 = BS.unpack . TE.encodeUtf8 . T.pack
-
-chunkRows' :: Array (Int, Int) b -> [[b]]
-chunkRows' array = go (elems array)
-  where
-    go [] = []
-    go xs =
-        let (h, t) = splitAt width xs
-         in h : go t
-    width =
-        let ((_, xmin), (_, xmax)) = bounds array
-         in xmax - xmin + 1
 
 weigh :: (RandomGen g) => CellUpdater m g Block
 weigh current neighbours =
