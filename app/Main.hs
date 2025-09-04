@@ -20,7 +20,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
-import Board (Board (bounds, hasIndex, (!)), Coord (Coord), MBoard (write))
+import Board (Board (bounds, hasIndex, (!)), Coord (..), MBoard (write))
 import qualified Board (lines)
 import Control.Monad (when)
 
@@ -29,17 +29,20 @@ import Control.Monad (when)
 main :: IO ()
 main = do
     board <- startingBoard
-    let draw more = do
-            boardImage <- liftIO $ boardToImage board
-            Just . Vty.addToTop (Vty.picForImage $ boardImage Vty.<-> more) <$> playerImage
+    let draw more player = do
+            boardImage <- liftIO $ boardToImage board player
+            let boardPicture = Vty.picForImage $ boardImage Vty.<-> more
+            -- Just . Vty.addToTop boardPicture <$> playerImage
+            pure $ Just boardPicture
+
     flip evalStateT startingPos $
         runGame $
             \e -> do
+                p <- State.get
                 let move dir = do
-                        p <- State.get
                         p' <- liftIO $ movePlayer p dir board
                         State.put p'
-                        draw (Vty.string defAttr $ show e)
+                        draw (Vty.string defAttr $ show e) p'
                 case e of
                     KEsc -> pure Nothing
                     KQ -> pure Nothing
@@ -47,8 +50,8 @@ main = do
                     KUp -> move GoUp
                     KLeft -> move GoLeft
                     KRight -> move GoRight
-                    UTick -> draw (Vty.string defAttr "Got tick!")
-                    _ -> draw (Vty.string defAttr "UNKNWN")
+                    UTick -> draw (Vty.string defAttr "Got tick!") p
+                    _ -> draw (Vty.string defAttr "UNKNWN") p
 
 -- pure $ Just $ Vty.picForImage $ Vty.string defAttr (show e)
 
@@ -59,10 +62,7 @@ startingPos :: Coord
 startingPos = Coord 23 0
 
 playerAttr :: Vty.Attr
-playerAttr =
-    defAttr
-        `Vty.withForeColor` Vty.red
-        `Vty.withBackColor` Vty.white
+playerAttr = defAttr `Vty.withBackColor` Vty.black
 
 startingBoard :: IO (IOArray (Int, Int) Block)
 startingBoard = do
@@ -73,26 +73,35 @@ startingBoard = do
         nextBoard b weigh
     return b
 
-boardToImage :: (Show e, MBoard b m e) => b -> m Vty.Image
-boardToImage board = mconcat . fmap printLine <$> Board.lines board
+boardToImage :: (MBoard b m Block) => b -> Coord -> m Vty.Image
+boardToImage board player = mconcat . fmap printLine . zip [0 ..] <$> Board.lines board
   where
-    printLine :: (Show e) => [e] -> Vty.Image
-    printLine = Vty.utf8String Vty.defAttr . stringToUtf8 . concatMap show
+    printLine (row, xs) = Vty.horizCat $ toPic <$> zip [0 ..] xs
+      where
+        toPic (col, block) =
+            if x player == col && y player == row
+                then Vty.string Vty.defAttr "◉◉"
+                else Vty.utf8String (attr block) $ stringToUtf8 $ show block
+
+    attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
+    attr Stone = Vty.defAttr `Vty.withForeColor` Vty.linearColor @Int 150 150 150
+    attr Fire = Vty.defAttr `Vty.withBackColor` Vty.red
+    attr _ = Vty.defAttr
 
 playerImage :: (Monad m) => StateT Coord m Vty.Image
 playerImage = do
     Coord x y <- State.get
-    return $ Vty.translate (2 * x) y $ Vty.string playerAttr "AA"
+    return $ Vty.translate (2 * x) y $ Vty.string playerAttr "○"
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
 
 instance Show Block where
-    show Stone = [utf8block, utf8block]
-    show Dirt = "xx"
+    show Stone = "🪨"
+    show Dirt = "  "
     show Air = "  "
     show Fire = "🔥"
-    show Stairs = "||"
+    show Stairs = "🪜"
 
 boards :: [Array (Int, Int) Block]
 boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh
@@ -107,11 +116,13 @@ weigh current neighbours =
             threshold = case current of
                 Dirt -> fromIntegral (10 - stones) / 100
                 Stone -> fromIntegral (1 + stones) / 100
-                _ -> error "Can generate Dirt and Stone for now."
+                _ -> 2
+            -- -> error "Can generate Dirt and Stone for now."
             switch Stone = Dirt
             switch Dirt = Stone
-            switch _ = error "Can generate Dirt and Stone for now."
-         in pure $ if r < threshold then switch current else current
+            switch _ = Air -- error "Can generate Dirt and Stone for now."
+            next = if r < threshold then switch current else current
+         in pure $ if next == Stone && r * 10 < threshold then Fire else next
 
 count :: (a -> Bool) -> [a] -> Int
 count xs f = length $ filter xs f
@@ -141,19 +152,17 @@ movePlayer ::
 movePlayer pos dir board = do
     let nextPos = movePos pos dir
     inBounds <- hasIndex board nextPos
-    if inBounds
-        then do
+    if not inBounds
+        then pure pos
+        else do
             nextBlock <- board ! nextPos
             thisBlock <- board ! pos
-            let needsStairs = dir == GoUp && thisBlock == Air
-            when needsStairs $ write board pos Stairs
             let needsDig = nextBlock == Dirt
             when needsDig $ write board nextPos Air
             let willMove =
                     not (needsDig && dir == GoUp)
                         && nextBlock /= Stone
                         && nextBlock /= Fire
+            let needsStairs = dir == GoUp && thisBlock == Air && willMove
+            when needsStairs $ write board pos Stairs
             pure $ if willMove then nextPos else pos
-        else do
-            b <- bounds board
-            fail $ "Wrong position: " ++ show pos ++ " -> " ++ show nextPos ++ show b
