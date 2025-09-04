@@ -48,10 +48,10 @@ nextBoard ::
 nextBoard board weigh = traverse_ updateCell =<< lift (elems board)
   where
     updateCell :: (Coord, a) -> StateT g m ()
-    updateCell (i, val) = lift . write board i =<< nextVal
-      where
-        neighbours = lift (getNeighbours i board)
-        nextVal = weigh val =<< neighbours
+    updateCell (i, val) = do
+        neighbours <- lift $ getNeighbours i board
+        nextVal <- weigh val neighbours
+        lift $ write board i nextVal
 
 getNeighbours :: forall b m a. (MBoard b m a) => Coord -> b -> m [a]
 getNeighbours pos board = traverse (board !) =<< validNeighbourIndices
