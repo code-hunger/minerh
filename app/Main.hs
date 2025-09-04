@@ -5,10 +5,9 @@ module Main where
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
 import VtyPlay (UserEvent (..), runGame)
 
-import Control.Monad.State (MonadIO (liftIO), MonadState (state), StateT, evalStateT)
+import Control.Monad.State (MonadIO (liftIO), MonadState (state), evalStateT)
 import qualified Control.Monad.State as State (get, put)
 import Data.Array (Array)
-import Data.Array.Base (MArray)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
@@ -20,11 +19,9 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
-import Board (Board (bounds, hasIndex, (!)), Coord (..), MBoard (write))
+import Board (Board (hasIndex, (!)), Coord (..), MBoard (write))
 import qualified Board (lines)
 import Control.Monad (when)
-
--- main = mapM_ (putStr . printBoard) (take 5 boards)
 
 main :: IO ()
 main = do
@@ -32,7 +29,6 @@ main = do
     let draw more player = do
             boardImage <- liftIO $ boardToImage board player
             let boardPicture = Vty.picForImage $ boardImage Vty.<-> more
-            -- Just . Vty.addToTop boardPicture <$> playerImage
             pure $ Just boardPicture
 
     flip evalStateT startingPos $
@@ -53,16 +49,11 @@ main = do
                     UTick -> draw (Vty.string defAttr "Got tick!") p
                     _ -> draw (Vty.string defAttr "UNKNWN") p
 
--- pure $ Just $ Vty.picForImage $ Vty.string defAttr (show e)
-
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
 
 startingPos :: Coord
 startingPos = Coord 23 0
-
-playerAttr :: Vty.Attr
-playerAttr = defAttr `Vty.withBackColor` Vty.black
 
 startingBoard :: IO (IOArray (Int, Int) Block)
 startingBoard = do
@@ -80,18 +71,13 @@ boardToImage board player = mconcat . fmap printLine . zip [0 ..] <$> Board.line
       where
         toPic (col, block) =
             if x player == col && y player == row
-                then Vty.string Vty.defAttr "◉◉"
+                then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                 else Vty.utf8String (attr block) $ stringToUtf8 $ show block
 
     attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
     attr Stone = Vty.defAttr `Vty.withForeColor` Vty.linearColor @Int 150 150 150
     attr Fire = Vty.defAttr `Vty.withBackColor` Vty.red
     attr _ = Vty.defAttr
-
-playerImage :: (Monad m) => StateT Coord m Vty.Image
-playerImage = do
-    Coord x y <- State.get
-    return $ Vty.translate (2 * x) y $ Vty.string playerAttr "○"
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)

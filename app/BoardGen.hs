@@ -2,7 +2,7 @@ module BoardGen where
 
 import Data.Array.MArray (MArray)
 
-import Control.Monad (filterM, guard, join, liftM2)
+import Control.Monad (filterM, guard)
 import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)

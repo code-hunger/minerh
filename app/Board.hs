@@ -4,7 +4,6 @@
 
 module Board (Board (..), MBoard (..), Coord (..)) where
 
-import Control.Monad (liftM2)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 
