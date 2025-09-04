@@ -7,8 +7,8 @@ import VtyPlay (UserEvent (..), runGame)
 
 import Control.Monad.State (MonadIO (liftIO), MonadState (state), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put)
-import Data.Array (Array, Ix (inRange))
-import Data.Array.Base (IArray (bounds), MArray (getBounds), elems, readArray, writeArray)
+import Data.Array (Array)
+import Data.Array.Base (IArray (bounds), MArray, elems)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
@@ -20,9 +20,9 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
+import Board (Board (hasIndex, (!)), Coord (Coord), MBoard (write))
 import qualified Board (lines)
 import Control.Monad (when)
-import Data.Tuple (swap)
 
 -- main = mapM_ (putStr . printBoard) (take 5 boards)
 
@@ -55,8 +55,8 @@ main = do
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
 
-startingPos :: (Int, Int)
-startingPos = (23, 0)
+startingPos :: Coord
+startingPos = Coord 23 0
 
 playerAttr :: Vty.Attr
 playerAttr =
@@ -79,10 +79,9 @@ boardToImage board = mconcat . fmap printLine <$> Board.lines board
     printLine :: (Show b) => [b] -> Vty.Image
     printLine = Vty.utf8String Vty.defAttr . stringToUtf8 . concatMap show
 
-playerImage :: (Monad m) => StateT Pos m Vty.Image
+playerImage :: (Monad m) => StateT Coord m Vty.Image
 playerImage = do
-    playerPos <- State.get
-    let (x, y) = playerPos
+    Coord x y <- State.get
     return $ Vty.translate (2 * x) y $ Vty.string playerAttr "AA"
 
 data Block = Air | Dirt | Stone | Stairs | Fire
@@ -138,30 +137,33 @@ type Pos = (Int, Int)
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)
 
-movePos :: Pos -> Dir -> Pos
-movePos (x, y) GoLeft = (x - 1, y)
-movePos (x, y) GoRight = (x + 1, y)
-movePos (x, y) GoUp = (x, y - 1)
-movePos (x, y) GoDown = (x, y + 1)
+movePos :: Coord -> Dir -> Coord
+movePos (Coord x y) GoLeft = Coord (x - 1) y
+movePos (Coord x y) GoRight = Coord (x + 1) y
+movePos (Coord x y) GoUp = Coord x (y - 1)
+movePos (Coord x y) GoDown = Coord x (y + 1)
 
-movePlayer :: (MArray a Block m, MonadFail m) => Pos -> Dir -> a (Int, Int) Block -> m Pos
+movePlayer ::
+    (MBoard b m Block, MonadFail m) =>
+    Coord ->
+    Dir ->
+    b ->
+    m Coord
 movePlayer pos dir board = do
     let nextPos = movePos pos dir
-    b <- getBounds board
-    if inRange b (swap nextPos)
+    inBounds <- hasIndex board nextPos
+    if inBounds
         then do
-            nextBlock <- readArray board (swap nextPos)
-            case nextBlock of
-                Air -> do
-                    thisBlock <- readArray board (swap pos)
-                    when (dir == GoUp && thisBlock == Air) $
-                        writeArray board (swap pos) Stairs
-                    pure nextPos
-                Dirt -> do
-                    writeArray board (swap nextPos) Air
-                    case dir of
-                        GoUp -> pure pos
-                        _ -> pure nextPos
-                Stairs -> pure nextPos
-                _ -> pure pos
-        else fail $ "Wrong position!" ++ show pos ++ show nextPos ++ show b
+            nextBlock <- board ! nextPos
+            thisBlock <- board ! pos
+            let needsStairs = dir == GoUp && thisBlock == Air
+            when needsStairs $ write board pos Stairs
+            let needsDig = nextBlock == Dirt
+            when needsDig $ write board nextPos Air
+            let willMove =
+                    not (needsDig && dir == GoUp)
+                        && nextBlock /= Stone
+                        && nextBlock /= Fire
+            pure $ if willMove then nextPos else pos
+        else
+            fail $ "Wrong position: " ++ show pos ++ " -> " ++ show nextPos

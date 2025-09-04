@@ -6,7 +6,7 @@ module Board (Board (..), MBoard (..), Coord (..)) where
 
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 
-data Coord = Coord {x :: Int, y :: Int}
+data Coord = Coord {x :: Int, y :: Int} deriving (Show)
 
 class (Monad m) => Board b m e | b -> e where
     (!) :: b -> Coord -> m e
