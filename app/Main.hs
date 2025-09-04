@@ -4,17 +4,18 @@ import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoa
 import Vty.Core (UserEvent (..), runVty)
 import Vty.Draw (draw)
 
-import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
-import qualified Control.Monad.State as State (get, modify', state)
+import Control.Monad.State (MonadIO (liftIO), StateT, evalStateT)
+import qualified Control.Monad.State as State (get, state)
 import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (forM, when, (>=>))
-import Control.Monad.Extra (whenM)
-import Game (Block (..), Game (..))
-import GameLoop (EventOrTick (..), UpdateStatus (..), loop)
+import Board (Coord (..))
+import Control.Monad
+import Game (Block (..), Dir (..), Game (..))
+import qualified Game
+import GameLoop (EventOrTick (..), UpdateStatus (..))
+import qualified GameLoop as Game (loop)
 
 main :: IO ()
 main = evalStateT (runVty f) =<< start
@@ -26,43 +27,22 @@ main = evalStateT (runVty f) =<< start
                 picture <- liftIO $ draw state
                 () <- liftIO $ render picture
                 pure Live
-         in loop eventStream ((update >=> draw') . \case Tick -> UTick; Event c -> toUserEvent c)
+         in Game.loop
+                eventStream
+                ((update >=> draw') . \case Tick -> UTick; Event c -> toUserEvent c)
 
 update ::
     UserEvent ->
     StateT (Game (IOArray (Int, Int) Block)) IO UpdateStatus
 update e = do
-    let move dir = do
-            newPosition <- movePlayer dir
-            State.modify' (\g -> g{player = newPosition})
-            pure Live
     case e of
-        UTick -> do
-            (Game player board movingParts) <- State.get
-            movingParts' <- fmap concat $ forM movingParts $ \i -> liftIO $ do
-                blockType <- board ! i
-                let below = movePos i GoDown
-                belowType <- board ! below
-                if blockType == Stone && (belowType == Air || belowType == Stairs)
-                    then do
-                        liftIO $ write board i Air
-                        liftIO $ write board below Stone
-                        pure [below]
-                    else
-                        pure []
-            State.modify' (\g -> g{movingParts = movingParts'})
-
-            let belowPlayer = movePos player GoDown
-            belowPlayerType <- lift $ board ! belowPlayer
-            when (belowPlayerType == Air) $ do
-                State.modify' $ \g -> g{player = belowPlayer}
-            pure Live
+        UTick -> Game.update >> pure Live
         KEsc -> pure Die
         KQ -> pure Die
-        KDown -> move GoDown
-        KUp -> move GoUp
-        KLeft -> move GoLeft
-        KRight -> move GoRight
+        KDown -> Game.movePlayer GoDown >> pure Live
+        KUp -> Game.movePlayer GoUp >> pure Live
+        KLeft -> Game.movePlayer GoLeft >> pure Live
+        KRight -> Game.movePlayer GoRight >> pure Live
         _ -> pure Live
 
 size :: BoardSize
@@ -72,8 +52,6 @@ start :: IO (Game (IOArray (Int, Int) Block))
 start = do
     b <- initBoard Dirt size
     () <- flip evalStateT (mkStdGen 42) $ do
-        nextBoard b weigh
-        nextBoard b weigh
         nextBoard b weigh
     return $ Game (Coord 23 0) b []
 
@@ -100,46 +78,3 @@ weigh current neighbours =
 
     countStones :: [Block] -> Int
     countStones = count (== Stone)
-
-data Dir = GoLeft | GoRight | GoUp | GoDown
-    deriving (Eq, Show)
-
-movePos :: Coord -> Dir -> Coord
-movePos (Coord x y) GoLeft = Coord (x - 1) y
-movePos (Coord x y) GoRight = Coord (x + 1) y
-movePos (Coord x y) GoUp = Coord x (y - 1)
-movePos (Coord x y) GoDown = Coord x (y + 1)
-
-trackDug :: (MBoard b m, MonadFail m, Item b ~ Block) => Coord -> StateT (Game b) m ()
-trackDug pos = do
-    (Game _ board _) <- State.get
-    thisBlockType <- lift $ board ! pos
-    when (thisBlockType /= Air) $ fail "Called dug on non-air!"
-    let abovePos = movePos pos GoUp
-    whenM (lift $ hasIndex board abovePos) $ do
-        aboveBlockType <- lift $ board ! abovePos
-        when (aboveBlockType == Stone) $
-            State.modify' (\g -> g{movingParts = abovePos : movingParts g})
-
-movePlayer ::
-    (MBoard b m, MonadFail m, Item b ~ Block) =>
-    Dir ->
-    StateT (Game b) m Coord
-movePlayer dir = do
-    (Game pos board _) <- State.get
-    let nextPos = movePos pos dir
-    inBounds <- lift $ hasIndex board nextPos
-    if not inBounds
-        then pure pos
-        else do
-            nextBlock <- lift $ board ! nextPos
-            thisBlock <- lift $ board ! pos
-            let needsDig = nextBlock == Dirt
-            when needsDig $ lift (write board nextPos Air) >> trackDug nextPos
-            let willMove =
-                    not (needsDig && dir == GoUp)
-                        && nextBlock /= Stone
-                        && nextBlock /= Fire
-            let needsStairs = dir == GoUp && thisBlock == Air && willMove
-            when needsStairs $ lift $ write board pos Stairs
-            pure $ if willMove then nextPos else pos
