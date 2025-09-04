@@ -1,8 +1,8 @@
 module Main where
 
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
+import Vty.Core (UserEvent (..), runVty)
 import Vty.Draw (Block (..), draw)
-import Vty.Loop (UserEvent (..), runGame)
 
 import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put, state)
@@ -11,7 +11,9 @@ import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (when, (>=>))
+import Control.Monad (forM, join, when, (<=<), (>=>))
+import Data.Maybe (isJust)
+import GameLoop (loop)
 
 main :: IO ()
 main = do
@@ -35,9 +37,13 @@ main = do
                 KRight -> move GoRight
                 _ -> pure $ Just (board, p)
 
-    evalStateT
-        (runGame $ update >=> mapM (lift . draw))
-        startingPos
+    flip evalStateT startingPos $ runVty $ \eventStream toUserEvent render ->
+        loop eventStream $
+            fmap isJust
+                . mapM (liftIO . render)
+                <=< mapM (liftIO . draw)
+                <=< update
+                    . maybe UTick toUserEvent
 
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}

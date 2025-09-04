@@ -1,17 +1,15 @@
-module GameLoop (Event (InputEvent, Tick), loop) where
+module GameLoop (loop) where
 
 import Control.Monad (forever, when)
 
-import qualified Control.Concurrent.Async as Async (Async, async, cancel)
+import qualified Control.Concurrent.Async as Async (async, cancel)
 import Control.Concurrent.STM (atomically, check, orElse, readTVar, registerDelay)
 
 import qualified Control.Concurrent.STM.TQueue as TQ
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import GHC.Conc.Sync (TVar)
 
-data Event e = Tick | InputEvent e
-
-loop :: forall m a. (MonadIO m) => IO a -> (Event a -> m Bool) -> m ()
+loop :: forall m e. (MonadIO m) => IO e -> (Maybe e -> m Bool) -> m ()
 loop nextEvent handleEvent = do
     eventQ <- liftIO TQ.newTQueueIO
 
@@ -21,8 +19,8 @@ loop nextEvent handleEvent = do
             liftIO . atomically $
                 readEvent `orElse` tick
           where
-            readEvent = InputEvent <$> TQ.readTQueue eventQ
-            tick = readTVar tickTimer >>= check >> pure Tick
+            readEvent = Just <$> TQ.readTQueue eventQ
+            tick = readTVar tickTimer >>= check >> pure Nothing
 
         registerTick = liftIO $ registerDelay 1000000 :: m (TVar Bool)
 
@@ -33,7 +31,7 @@ loop nextEvent handleEvent = do
             when shouldContinue $
                 case e of
                     -- Tick used, start a new timer!
-                    Tick -> registerTick >>= go
+                    Nothing -> registerTick >>= go
                     -- Tick not yet used, keep it
                     _ -> go tickTimer
 
