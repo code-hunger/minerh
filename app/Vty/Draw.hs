@@ -9,32 +9,22 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
+import Game (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
-data Block = Air | Dirt | Stone | Stairs | Fire
-    deriving (Eq)
+draw :: (Board board m, Item board ~ Block) => Game board -> m Vty.Picture
+draw game = Vty.picForImage <$> boardToImage game
 
-instance Show Block where
-    show Stone = "🪨"
-    show Dirt = "  "
-    show Air = "  "
-    show Fire = "🔥"
-    show Stairs = "🪜"
-
-draw :: (Board board m, Item board ~ Block) => (board, Coord) -> m Vty.Picture
-draw (board, player) = do
-    boardImage <- boardToImage board player
-    pure $ Vty.picForImage boardImage
-
-boardToImage :: (Board board m, Item board ~ Block) => board -> Coord -> m Vty.Image
-boardToImage board player = linesToPicture <$> Board.lines board
+boardToImage :: (Board board m, Item board ~ Block) => Game board -> m Vty.Image
+boardToImage (Game player board _) =
+    linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed
     printLine (row, xs) =
         let toPic (col, block) =
                 if x player == col && y player == row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
-                    else Vty.utf8String (attr block) $ stringToUtf8 $ show block
+                    else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
          in Vty.horizCat $ toPic <$> indexed xs :: Vty.Image
 
     attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
@@ -46,3 +36,10 @@ boardToImage board player = linesToPicture <$> Board.lines board
     stringToUtf8 = BS.unpack . TE.encodeUtf8 . T.pack
 
     indexed = zip [0 ..]
+
+printBlock :: Block -> String
+printBlock Stone = "🪨"
+printBlock Dirt = "  "
+printBlock Air = "  "
+printBlock Fire = "🔥"
+printBlock Stairs = "🪜"

@@ -1,4 +1,4 @@
-module GameLoop (loop, EventOrTick (..)) where
+module GameLoop (loop, EventOrTick (..), UpdateStatus (..)) where
 
 import Control.Monad (forever, when)
 
@@ -11,7 +11,9 @@ import GHC.Conc.Sync (TVar)
 
 data EventOrTick e = Tick | Event e
 
-loop :: forall m e. (MonadIO m) => IO e -> (EventOrTick e -> m Bool) -> m ()
+data UpdateStatus = Live | Die
+
+loop :: forall m e. (MonadIO m) => IO e -> (EventOrTick e -> m UpdateStatus) -> m ()
 loop nextEvent handleEvent = do
     eventQ <- liftIO TQ.newTQueueIO
 
@@ -29,9 +31,9 @@ loop nextEvent handleEvent = do
         go :: TVar Bool -> m ()
         go tickTimer = do
             e <- liftIO $ eventOrTick tickTimer
-            shouldContinue <- handleEvent e
-            when shouldContinue $
-                case e of
+            handleEvent e >>= \case
+                Die -> pure ()
+                Live -> case e of
                     -- Tick used, start a new timer!
                     Tick -> registerTick >>= go
                     -- Tick not yet used, keep it

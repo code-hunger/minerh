@@ -2,62 +2,59 @@ module Main where
 
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
 import Vty.Core (UserEvent (..), runVty)
-import Vty.Draw (Block (..), draw)
+import Vty.Draw (draw)
 
-import Control.Monad.State (MonadIO (liftIO), StateT, evalStateT)
-import qualified Control.Monad.State as State (get, put, state)
+import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
+import qualified Control.Monad.State as State (get, modify', state)
 import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad (when)
-import Data.Maybe (isJust)
-import GameLoop (EventOrTick (..), loop)
+import Control.Monad (when, (>=>))
+import Game (Block (..), Game (..))
+import GameLoop (EventOrTick (..), UpdateStatus (..), loop)
 
 main :: IO ()
-main = do
-    board <- startingBoard
+main = evalStateT (runVty f) =<< start
+  where
+    f eventStream toUserEvent render =
+        let draw' Die = pure Die
+            draw' Live = do
+                state <- State.get
+                picture <- liftIO $ draw state
+                () <- liftIO $ render picture
+                pure Live
+         in loop eventStream ((update >=> draw') . \case Tick -> UTick; Event c -> toUserEvent c)
 
-    let update ::
-            UserEvent ->
-            StateT Coord IO (Maybe (IOArray (Int, Int) Block, Coord))
-        update e = do
-            p <- State.get
-            let move dir = do
-                    p' <- liftIO $ movePlayer p dir board
-                    State.put p'
-                    pure $ Just (board, p')
-            case e of
-                KEsc -> pure Nothing
-                KQ -> pure Nothing
-                KDown -> move GoDown
-                KUp -> move GoUp
-                KLeft -> move GoLeft
-                KRight -> move GoRight
-                _ -> pure $ Just (board, p)
-
-    flip evalStateT startingPos $ runVty $ \eventStream toUserEvent render ->
-        let eventHandler e = do
-                state <- update e
-                picture <- mapM (liftIO . draw) state
-                isJust <$> mapM (liftIO . render) picture
-         in loop eventStream (eventHandler . \case Tick -> UTick; Event c -> toUserEvent c)
+update ::
+    UserEvent ->
+    StateT (Game (IOArray (Int, Int) Block)) IO UpdateStatus
+update e = do
+    let move dir = do
+            newPosition <- movePlayer dir
+            State.modify' (\g -> g{player = newPosition})
+            pure Live
+    case e of
+        KEsc -> pure Die
+        KQ -> pure Die
+        KDown -> move GoDown
+        KUp -> move GoUp
+        KLeft -> move GoLeft
+        KRight -> move GoRight
+        _ -> pure Live
 
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
 
-startingPos :: Coord
-startingPos = Coord 23 0
-
-startingBoard :: IO (IOArray (Int, Int) Block)
-startingBoard = do
+start :: IO (Game (IOArray (Int, Int) Block))
+start = do
     b <- initBoard Dirt size
     () <- flip evalStateT (mkStdGen 42) $ do
         nextBoard b weigh
         nextBoard b weigh
         nextBoard b weigh
-    return b
+    return $ Game (Coord 23 0) b []
 
 boards :: [Array (Int, Int) Block]
 boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh
@@ -86,7 +83,6 @@ countStones = count (== Stone)
 utf8block :: Char
 utf8block = '█'
 
-type Pos = (Int, Int)
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)
 
@@ -98,16 +94,15 @@ movePos (Coord x y) GoDown = Coord x (y + 1)
 
 movePlayer ::
     (MBoard b m, MonadFail m, Item b ~ Block) =>
-    Coord ->
     Dir ->
-    b ->
-    m Coord
-movePlayer pos dir board = do
+    StateT (Game b) m Coord
+movePlayer dir = do
+    (Game pos board _) <- State.get
     let nextPos = movePos pos dir
-    inBounds <- hasIndex board nextPos
+    inBounds <- lift $ hasIndex board nextPos
     if not inBounds
         then pure pos
-        else do
+        else lift $ do
             nextBlock <- board ! nextPos
             thisBlock <- board ! pos
             let needsDig = nextBlock == Dirt
