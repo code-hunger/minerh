@@ -4,15 +4,35 @@
 
 module Board (Board (..), MBoard (..), Coord (..)) where
 
+import Control.Monad (liftM2)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
+import Data.Bifunctor (Bifunctor (bimap))
 
-data Coord = Coord {x :: Int, y :: Int} deriving (Show)
+data Coord = Coord {x :: Int, y :: Int} deriving (Show, Eq)
+
+toCoord :: (Int, Int) -> Coord
+toCoord (i, j) = Coord j i
+
+fromCoord :: Coord -> (Int, Int)
+fromCoord (Coord _x _y) = (_y, _x)
+
+fromCoordPair :: (Coord, Coord) -> ((Int, Int), (Int, Int))
+fromCoordPair = bimap fromCoord fromCoord
+
+inRangeCoord :: (Coord, Coord) -> Coord -> Bool
+inRangeCoord bb i = fromCoordPair bb `inRange` fromCoord i
 
 class (Monad m) => Board b m e | b -> e where
     (!) :: b -> Coord -> m e
     lines :: b -> m [[e]]
-    hasIndex :: b -> Coord -> m Bool
+    bounds :: b -> m (Coord, Coord)
+
     indices :: b -> m [Coord]
+    -- smells like a space leak if the whole list is computed before returned
+    indices array = map toCoord . range . fromCoordPair <$> bounds array
+
+    hasIndex :: b -> Coord -> m Bool
+    hasIndex array i = (`inRangeCoord` i) <$> bounds array
 
     elems :: b -> m [(Coord, e)]
     elems b = indices b >>= traverse coupleValue
@@ -37,11 +57,10 @@ instance (MArray arr el m) => Board (arr (Int, Int) el) m el where
         getWidth = fmap boundsToWidth . getBounds
         boundsToWidth ((_, xmin), (_, xmax)) = xmax - xmin + 1
 
-    hasIndex array i = do
-        bounds <- getBounds array
-        pure $ bounds `inRange` (y i, x i)
-
-    indices array = map (\(i, j) -> Coord j i) . range <$> getBounds array
+    bounds array = toCoordPair <$> getBounds array
+      where
+        toCoordPair :: ((Int, Int), (Int, Int)) -> (Coord, Coord)
+        toCoordPair = bimap toCoord toCoord
 
 instance (MArray arr el m) => MBoard (arr (Int, Int) el) m el where
     write array i = writeArray array (y i, x i)

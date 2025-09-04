@@ -8,6 +8,7 @@ import VtyPlay (UserEvent (..), runGame)
 import Control.Monad.State (MonadIO (liftIO), MonadState (state), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, put)
 import Data.Array (Array)
+import Data.Array.Base (MArray)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
@@ -19,7 +20,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 import Graphics.Vty (defAttr)
 
-import Board (Board (hasIndex, (!)), Coord (Coord), MBoard (write))
+import Board (Board (bounds, hasIndex, (!)), Coord (Coord), MBoard (write))
 import qualified Board (lines)
 import Control.Monad (when)
 
@@ -72,10 +73,10 @@ startingBoard = do
         nextBoard b weigh
     return b
 
-boardToImage :: (Show b, MArray a b m) => a (Int, Int) b -> m Vty.Image
+boardToImage :: (Show e, MBoard b m e) => b -> m Vty.Image
 boardToImage board = mconcat . fmap printLine <$> Board.lines board
   where
-    printLine :: (Show b) => [b] -> Vty.Image
+    printLine :: (Show e) => [e] -> Vty.Image
     printLine = Vty.utf8String Vty.defAttr . stringToUtf8 . concatMap show
 
 playerImage :: (Monad m) => StateT Coord m Vty.Image
@@ -153,5 +154,6 @@ movePlayer pos dir board = do
                         && nextBlock /= Stone
                         && nextBlock /= Fire
             pure $ if willMove then nextPos else pos
-        else
-            fail $ "Wrong position: " ++ show pos ++ " -> " ++ show nextPos
+        else do
+            b <- bounds board
+            fail $ "Wrong position: " ++ show pos ++ " -> " ++ show nextPos ++ show b
