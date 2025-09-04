@@ -1,11 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Board (Board (..), MBoard (..), Coord (..)) where
 
+import Control.Monad.State.Lazy (MonadTrans (lift), StateT)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
+import Data.Kind (Type)
 
 data Coord = Coord {x :: Int, y :: Int} deriving (Show, Eq)
 
@@ -22,9 +25,10 @@ inRangeCoord :: (Coord, Coord) -> Coord -> Bool
 inRangeCoord bb i = fromCoordPair bb `inRange` fromCoord i
 
 -- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
-class (Monad m) => Board board m el | board -> el where
-    (!) :: board -> Coord -> m el
-    lines :: board -> m [[el]]
+class (Monad m) => Board board m where
+    type Item board :: Type
+    (!) :: board -> Coord -> m (Item board)
+    lines :: board -> m [[(Item board)]]
     bounds :: board -> m (Coord, Coord)
 
     indices :: board -> m [Coord]
@@ -34,16 +38,18 @@ class (Monad m) => Board board m el | board -> el where
     hasIndex :: board -> Coord -> m Bool
     hasIndex array i = (`inRangeCoord` i) <$> bounds array
 
-    elems :: board -> m [(Coord, el)]
+    elems :: board -> m [(Coord, (Item board))]
     elems b = indices b >>= traverse coupleValue
       where
-        coupleValue i = (i,) <$> (b ! i :: m el)
+        coupleValue i = (i,) <$> (b ! i :: m (Item board))
 
 -- A mutable board is a board that can be mutated
-class (Board board m el) => MBoard board m el where
-    write :: board -> Coord -> el -> m ()
+class (Board board m) => MBoard board m where
+    write :: board -> Coord -> Item board -> m ()
 
-instance (MArray arr el m) => Board (arr (Int, Int) el) m el where
+instance (MArray arr el m) => Board (arr (Int, Int) el) m where
+    type Item (arr (Int, Int) el) = el
+
     array ! i = readArray array (y i, x i)
 
     lines array = do
@@ -63,5 +69,5 @@ instance (MArray arr el m) => Board (arr (Int, Int) el) m el where
         toCoordPair :: ((Int, Int), (Int, Int)) -> (Coord, Coord)
         toCoordPair = bimap toCoord toCoord
 
-instance (MArray arr el m) => MBoard (arr (Int, Int) el) m el where
+instance (MArray arr el m) => MBoard (arr (Int, Int) el) m where
     write array i = writeArray array (y i, x i)

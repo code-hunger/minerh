@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module VtyPlay (runGame, UserEvent (..)) where
+module Vty.Loop (runGame, UserEvent (..)) where
 
 import qualified Graphics.Vty as Vty
 import Graphics.Vty.Platform.Unix (mkVty)
@@ -9,13 +9,17 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 
 import GameLoop (Event (InputEvent, Tick), loop)
 
-runGame :: (MonadIO m) => UserLogic m -> m ()
+runGame ::
+    forall m.
+    (MonadIO m) =>
+    UserLogic m ->
+    m ()
 runGame f = do
     vty <- liftIO $ mkVty Vty.defaultConfig
 
     liftIO $ Vty.setWindowTitle vty "Miner V"
 
-    loop (Vty.nextEvent vty) (handleEvent f vty)
+    loop (Vty.nextEvent vty) (handleEvent vty f)
 
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
@@ -24,8 +28,13 @@ data UserEvent = UTick | KEsc | KQ | KDown | KLeft | KUp | KRight | Other derivi
 
 type UserLogic m = UserEvent -> m (Maybe Vty.Picture)
 
-handleEvent :: (MonadIO m) => UserLogic m -> Vty.Vty -> Event Vty.Event -> m Bool
-handleEvent f vty e = do
+handleEvent ::
+    (MonadIO m) =>
+    Vty.Vty ->
+    UserLogic m ->
+    Event Vty.Event ->
+    m Bool
+handleEvent vty f e = do
     let ue = case e of
             Tick -> UTick
             InputEvent (Vty.EvKey Vty.KEsc []) -> KEsc

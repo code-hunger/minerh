@@ -39,27 +39,26 @@ makePureBoards size g defBlock weigh = runST $ do
     go
 
 nextBoard ::
-    forall g el board m.
-    (RandomGen g, MBoard board m el) =>
+    forall g board m.
+    (RandomGen g, MBoard board m) =>
     board ->
-    CellUpdater m g el ->
+    CellUpdater m g (Item board) ->
     StateT g m ()
 nextBoard board weigh =
     mapMM_
         updateCell
         (lift (elems board))
   where
-    updateCell :: (Coord, el) -> StateT g m ()
     updateCell (i, val) = do
         neighbours <- lift $ getNeighbours i board
         nextVal <- weigh val neighbours
         lift $ write board i nextVal
 
 getNeighbours ::
-    (MBoard board m el) =>
+    (MBoard board m) =>
     Coord ->
     board ->
-    m [el]
+    m [Item board]
 getNeighbours pos board =
     mapMM
         (board !)

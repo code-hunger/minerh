@@ -62,7 +62,7 @@ executable hame
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: BoardGen, VtyPlay, GameLoop, Board
+    other-modules: BoardGen, Vty.Loop, Vty.Draw, GameLoop, Board
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -76,4 +76,4 @@ executable hame
     -- Base language which the package is written in.
     default-language: Haskell2010
     
-    default-extensions: ScopedTypeVariables, TypeApplications, Rank2Types
+    default-extensions: ScopedTypeVariables, TypeApplications, Rank2Types, FlexibleContexts
