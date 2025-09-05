@@ -28,31 +28,33 @@ trackDug pos = do
             State.modify' (\g -> g{movingParts = abovePos : movingParts g})
 
 movePlayer ::
-    (MBoard board m, MonadFail m, Item board ~ Block) =>
+    ( MBoard board m
+    , Item board ~ Block
+    , MonadFail m
+    ) =>
     Dir ->
     StateT (Game board) m ()
 movePlayer dir = do
     (Game pos board _) <- State.get
     let nextPos = movePos pos dir
     inBounds <- lift $ hasIndex board nextPos
-    if not inBounds
-        then pure ()
-        else do
-            nextBlock <- lift $ board ! nextPos
-            thisBlock <- lift $ board ! pos
-            let needsDig = nextBlock == Dirt
-            when needsDig $
-                lift (write board nextPos Air) >> trackDug nextPos
-            let willMove =
-                    not (needsDig && dir == GoUp)
-                        && nextBlock /= Stone
-                        && nextBlock /= Fire
-            let needsStairs = dir == GoUp && thisBlock == Air && willMove
-            when needsStairs $
-                lift $
-                    write board pos Stairs
-            when willMove $
-                State.modify' (\g -> g{player = nextPos})
+    when inBounds $ do
+        nextBlock <- lift $ board ! nextPos
+        thisBlock <- lift $ board ! pos
+        let needsToDig = nextBlock == Dirt
+        when needsToDig $
+            lift (write board nextPos Air)
+                >> trackDug nextPos
+        let willMove =
+                not (needsToDig && dir == GoUp)
+                    && nextBlock /= Stone
+                    && nextBlock /= Fire
+        let needsStairs = dir == GoUp && thisBlock == Air && willMove
+        when needsStairs $
+            lift $
+                write board pos Stairs
+        when willMove $
+            State.modify' (\g -> g{player = nextPos})
 
 update ::
     forall m board.
