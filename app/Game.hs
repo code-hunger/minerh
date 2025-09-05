@@ -6,7 +6,6 @@ import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
 import Control.Monad.Extra (forM, unlessM, when, whenM, (&&^))
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
-import Data.Function (fix)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
@@ -14,7 +13,11 @@ data Block = Air | Dirt | Stone | Stairs | Fire
 data Game board = Game
     { player :: Coord
     , board :: board
-    , movingParts :: [Coord]
+    , movingParts ::
+        [ ( Int -- how many ticks should pass until thhe part drops by 1 block
+          , Coord -- the bottom part of a collapsing column
+          )
+        ]
     }
 
 trackDug :: forall m b. (MBoard b m, MonadFail m, Item b ~ Block) => Coord -> StateT (Game b) m ()
@@ -27,7 +30,7 @@ trackDug pos = do
         ( hasIndex' above
             &&^ (canFall <$> blockTypeAt above)
         )
-        $ addToTracked above
+        $ addToTracked (30, above)
   where
     hasIndex' i = State.get >>= (\(Game _ b _) -> lift $ hasIndex b i)
     blockTypeAt i = State.get >>= (\(Game _ b _) -> lift $ b ! i)
@@ -74,11 +77,14 @@ update ::
     StateT (Game board) m ()
 update = do
     (Game player board movingParts) <- State.get
-    movingParts' <- fmap concat $ forM movingParts $ \i -> lift $ do
+    movingParts' <- fmap concat $ forM movingParts $ \(tick, i) -> lift $ do
         let below = movePos i GoDown
         belowType <- board ! below
         if belowType == Air || belowType == Stairs
-            then collapseAt board i >> pure [below]
+            then
+                if tick > 1
+                    then pure [(tick - 1, i)]
+                    else collapseAt board i >> pure [(5, below)]
             else pure []
     State.modify' (\g -> g{movingParts = movingParts'})
 

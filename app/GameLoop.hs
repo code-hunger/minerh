@@ -16,7 +16,7 @@ data EventOrTick e = Tick | Event e
 data UpdateStatus = Live | Die
 
 frequency :: Int
-frequency = 60
+frequency = 30
 
 loop ::
     forall m e.
