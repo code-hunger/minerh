@@ -14,21 +14,20 @@ import Board (Coord (..))
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..))
 import qualified Game
-import GameLoop (EventOrTick (..), UpdateStatus (..))
+import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
 
 main :: IO ()
 main = evalStateT (runVty f) =<< start
   where
-    f eventStream toUserEvent render =
+    f eventStream render =
         let draw' Die = pure Die
             draw' Live = do
                 state <- State.get
                 picture <- liftIO $ draw state
                 () <- liftIO $ render picture
                 pure Live
-         in Game.loop eventStream $
-                draw' <=< update . map toUserEvent
+         in Game.loop eventStream $ draw' <=< update
 
 update ::
     [UserEvent] ->
