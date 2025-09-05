@@ -3,9 +3,10 @@
 module Game where
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad.Extra (forM, when, whenM)
+import Control.Monad.Extra (forM, unlessM, when, whenM, (&&^))
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
+import Data.Function (fix)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
@@ -16,16 +17,27 @@ data Game board = Game
     , movingParts :: [Coord]
     }
 
-trackDug :: (MBoard b m, MonadFail m, Item b ~ Block) => Coord -> StateT (Game b) m ()
+trackDug :: forall m b. (MBoard b m, MonadFail m, Item b ~ Block) => Coord -> StateT (Game b) m ()
 trackDug pos = do
-    (Game _ board _) <- State.get
-    thisBlockType <- lift $ board ! pos
-    when (thisBlockType /= Air) $ fail "Called dug on non-air!"
-    let abovePos = movePos pos GoUp
-    whenM (lift $ hasIndex board abovePos) $ do
-        aboveBlockType <- lift $ board ! abovePos
-        when (aboveBlockType == Stone) $
-            State.modify' (\g -> g{movingParts = abovePos : movingParts g})
+    unlessM ((== Air) <$> blockTypeAt pos) $
+        fail "Called dug on non-air!"
+
+    let above = moveUp pos
+    whenM
+        ( hasIndex' above
+            &&^ (canFall <$> blockTypeAt above)
+        )
+        $ addToTracked above
+  where
+    hasIndex' i = State.get >>= (\(Game _ b _) -> lift $ hasIndex b i)
+    blockTypeAt i = State.get >>= (\(Game _ b _) -> lift $ b ! i)
+    addToTracked i = State.modify' (\g -> g{movingParts = i : movingParts g})
+
+canFall :: Block -> Bool
+canFall blockType = blockType == Stone || blockType == Fire
+
+moveUp :: Coord -> Coord
+moveUp = (`movePos` GoUp)
 
 movePlayer ::
     ( MBoard board m
@@ -63,22 +75,31 @@ update ::
 update = do
     (Game player board movingParts) <- State.get
     movingParts' <- fmap concat $ forM movingParts $ \i -> lift $ do
-        blockType <- board ! i
         let below = movePos i GoDown
         belowType <- board ! below
-        if blockType == Stone && (belowType == Air || belowType == Stairs)
-            then do
-                write board i Air
-                write board below Stone
-                pure [below]
-            else
-                pure []
+        if belowType == Air || belowType == Stairs
+            then collapseAt board i >> pure [below]
+            else pure []
     State.modify' (\g -> g{movingParts = movingParts'})
 
     let belowPlayer = movePos player GoDown
     belowPlayerType <- lift $ board ! belowPlayer
     when (belowPlayerType == Air) $ do
         State.modify' $ \g -> g{player = belowPlayer}
+
+collapseAt ::
+    forall m board.
+    (MBoard board m, Item board ~ Block) =>
+    board ->
+    Coord ->
+    m ()
+collapseAt board j = do
+    isValid <- hasIndex board j
+    blockType <- board ! j
+    when (isValid && canFall blockType) $ do
+        write board j Air
+        write board (movePos j GoDown) blockType
+        collapseAt board (moveUp j)
 
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)
