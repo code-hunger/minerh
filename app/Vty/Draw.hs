@@ -16,7 +16,7 @@ draw :: (Board board m, Item board ~ Block) => Game board -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game board -> m Vty.Image
-boardToImage (Game player board _) =
+boardToImage (Game (player, _) board _) =
     linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed

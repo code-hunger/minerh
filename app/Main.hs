@@ -41,14 +41,15 @@ update (e : events) =
             update events
 
 size :: BoardSize
-size = BoardSize{cols = 100, rows = 90}
+size = BoardSize{cols = 50, rows = 90}
 
 start :: IO (Game (IOArray (Int, Int) Block))
 start = do
-    b <- initBoard Dirt size
+    board <- initBoard Dirt size
     () <- flip evalStateT (mkStdGen 42) $ do
-        nextBoard b weigh
-    return $ Game (Coord 23 0) b []
+        nextBoard board weigh
+        nextBoard board weigh
+    return $ Game (Coord 23 0, Nothing) board []
 
 boards :: [Array (Int, Int) Block]
 boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh

@@ -3,15 +3,18 @@
 module Game where
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad.Extra (forM, unlessM, when, whenM, (&&^))
+import Control.Monad.Extra (forM, unlessM, when, whenJust, whenM, (&&^))
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
+import System.IO.Error (alreadyExistsErrorType)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
 
+data DigRequest = DigRequest Dir Int
+
 data Game board = Game
-    { player :: Coord
+    { player :: (Coord, Maybe DigRequest)
     , board :: board
     , movingParts ::
         [ ( Int -- how many ticks should pass until thhe part drops by 1 block
@@ -50,18 +53,21 @@ movePlayer ::
     Dir ->
     StateT (Game board) m ()
 movePlayer dir = do
-    (Game pos board _) <- State.get
+    (Game (pos, digRequest) board _) <- State.get
     let nextPos = movePos pos dir
     inBounds <- lift $ hasIndex board nextPos
-    when inBounds $ do
+
+    let alreadyWantsToDigThere =
+            maybe False (\(DigRequest requestDir _) -> requestDir == dir) digRequest
+
+    when (inBounds && not alreadyWantsToDigThere) $ do
         nextBlock <- lift $ board ! nextPos
         thisBlock <- lift $ board ! pos
         let needsToDig = nextBlock == Dirt
         when needsToDig $
-            lift (write board nextPos Air)
-                >> trackDug nextPos
+            State.modify' (\g -> g{player = (pos, Just $ DigRequest dir 4)})
         let willMove =
-                not (needsToDig && dir == GoUp)
+                not needsToDig
                     && nextBlock /= Stone
                     && nextBlock /= Fire
         let needsStairs = dir == GoUp && thisBlock == Air && willMove
@@ -69,14 +75,14 @@ movePlayer dir = do
             lift $
                 write board pos Stairs
         when willMove $
-            State.modify' (\g -> g{player = nextPos})
+            State.modify' (\g -> g{player = (nextPos, Nothing)})
 
 update ::
     forall m board.
-    (MBoard board m, Item board ~ Block) =>
+    (MBoard board m, Item board ~ Block, MonadFail m) =>
     StateT (Game board) m ()
 update = do
-    (Game player board movingParts) <- State.get
+    (Game (playerPos, digRequest) board movingParts) <- State.get
     movingParts' <- fmap concat $ forM movingParts $ \(tick, i) -> lift $ do
         let below = movePos i GoDown
         belowType <- board ! below
@@ -88,10 +94,30 @@ update = do
             else pure []
     State.modify' (\g -> g{movingParts = movingParts'})
 
-    let belowPlayer = movePos player GoDown
+    let belowPlayer = movePos playerPos GoDown
     belowPlayerType <- lift $ board ! belowPlayer
     when (belowPlayerType == Air) $ do
-        State.modify' $ \g -> g{player = belowPlayer}
+        State.modify' $ \g -> g{player = (belowPlayer, Nothing)}
+
+    whenJust digRequest $ \(DigRequest dir ticks) ->
+        if ticks > 0
+            then State.modify' (\g -> g{player = (playerPos, Just (DigRequest dir (ticks - 1)))})
+            else do
+                let nextPos = playerPos `movePos` dir
+                lift (write board nextPos Air)
+                trackDug nextPos
+                State.modify'
+                    ( \g ->
+                        g
+                            { player =
+                                -- if we dug up, we stay here; if we dug down - we'll fall anyway,
+                                -- so we only need to care for left and right
+                                ( if dir == GoLeft || dir == GoRight then nextPos else playerPos
+                                , -- dig request evaluated, reset it!
+                                  Nothing
+                                )
+                            }
+                    )
 
 collapseAt ::
     forall m board.
