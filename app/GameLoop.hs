@@ -16,10 +16,15 @@ data EventOrTick e = Tick | Event e
 data UpdateStatus = Live | Die
 
 frequency :: Int
-frequency = 50
+frequency = 60
 
-loop :: forall m e. (MonadIO m) => IO e -> (EventOrTick e -> m UpdateStatus) -> m ()
-loop nextEvent handleEvent = do
+loop ::
+    forall m e.
+    (MonadIO m) =>
+    IO e ->
+    ([e] -> m UpdateStatus) ->
+    m ()
+loop nextEvent updateHandler = do
     eventQ <- liftIO TQ.newTQueueIO
 
     inputEventThread <- liftIO $ Async.async . forever $ atomically . TQ.writeTQueue eventQ =<< nextEvent
@@ -32,17 +37,21 @@ loop nextEvent handleEvent = do
 
         registerTick = liftIO $ registerDelay (1_000_000 `div` frequency) :: m (TVar Bool)
 
-        go :: TVar Bool -> m ()
-        go tickTimer = do
-            e <- liftIO $ eventOrTick tickTimer
-            handleEvent e >>= \case
-                Die -> pure ()
-                Live -> case e of
-                    -- Tick used, start a new timer!
-                    Tick -> registerTick >>= go
-                    -- Tick not yet used, keep it
-                    _ -> go tickTimer
+        go :: [e] -> TVar Bool -> m ()
+        go events tickTimer =
+            eventOrTick tickTimer
+                >>= \case
+                    Event e ->
+                        -- accumulate events and keep the ticker
+                        go (e : events) tickTimer
+                    Tick ->
+                        updateHandler events >>= \case
+                            Die -> pure ()
+                            Live ->
+                                -- event stack consumed!
+                                -- Reset and start a new ticker.
+                                registerTick >>= go []
 
-    () <- go =<< registerTick
+    () <- go [] =<< registerTick
 
     liftIO $ Async.cancel inputEventThread

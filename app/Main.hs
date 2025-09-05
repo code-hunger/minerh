@@ -27,23 +27,19 @@ main = evalStateT (runVty f) =<< start
                 picture <- liftIO $ draw state
                 () <- liftIO $ render picture
                 pure Live
-         in Game.loop
-                eventStream
-                ((update >=> draw') . \case Tick -> UTick; Event c -> toUserEvent c)
+         in Game.loop eventStream $
+                draw' <=< update . map toUserEvent
 
 update ::
-    UserEvent ->
+    [UserEvent] ->
     StateT (Game (IOArray (Int, Int) Block)) IO UpdateStatus
-update e = do
-    case e of
-        UTick -> Game.update >> pure Live
-        KEsc -> pure Die
-        KQ -> pure Die
-        KDown -> Game.movePlayer GoDown >> pure Live
-        KUp -> Game.movePlayer GoUp >> pure Live
-        KLeft -> Game.movePlayer GoLeft >> pure Live
-        KRight -> Game.movePlayer GoRight >> pure Live
-        _ -> pure Live
+update [] = Game.update >> pure Live
+update (e : events) =
+    if e == KEsc || e == KQ
+        then pure Die
+        else do
+            mapM_ Game.movePlayer $ toMovement e
+            update events
 
 size :: BoardSize
 size = BoardSize{cols = 100, rows = 90}
@@ -78,3 +74,10 @@ weigh current neighbours =
 
     countStones :: [Block] -> Int
     countStones = count (== Stone)
+
+toMovement :: UserEvent -> Maybe Dir
+toMovement KDown = Just GoDown
+toMovement KUp = Just GoUp
+toMovement KLeft = Just GoLeft
+toMovement KRight = Just GoRight
+toMovement _ = Nothing
