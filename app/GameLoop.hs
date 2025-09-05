@@ -21,10 +21,10 @@ frequency = 60
 loop ::
     forall m e.
     (MonadIO m) =>
-    IO e ->
     ([e] -> m UpdateStatus) ->
+    IO e ->
     m ()
-loop nextEvent updateHandler = do
+loop updateHandler nextEvent = do
     eventQ <- liftIO TQ.newTQueueIO
 
     inputEventThread <- liftIO $ Async.async . forever $ atomically . TQ.writeTQueue eventQ =<< nextEvent

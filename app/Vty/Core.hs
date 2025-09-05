@@ -9,14 +9,14 @@ import Graphics.Vty.Input.Events (Event (EvKey))
 runVty ::
     forall m.
     (MonadIO m) =>
-    (IO UserEvent -> (Vty.Picture -> IO ()) -> m ()) ->
+    ((Vty.Picture -> IO ()) -> IO UserEvent -> m ()) ->
     m ()
 runVty f = do
     vty <- liftIO $ mkVty Vty.defaultConfig
 
     liftIO $ Vty.setWindowTitle vty "Miner V"
 
-    f (liftIO $ toUserEvent <$> Vty.nextEvent vty) (Vty.update vty)
+    f (Vty.update vty) (liftIO $ toUserEvent <$> Vty.nextEvent vty)
 
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"

@@ -20,14 +20,14 @@ import qualified GameLoop as Game (loop)
 main :: IO ()
 main = evalStateT (runVty f) =<< start
   where
-    f eventStream render =
+    f render =
         let draw' Die = pure Die
             draw' Live = do
                 state <- State.get
                 picture <- liftIO $ draw state
                 () <- liftIO $ render picture
                 pure Live
-         in Game.loop eventStream $ draw' <=< update
+         in Game.loop (draw' <=< update)
 
 update ::
     [UserEvent] ->
