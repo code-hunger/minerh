@@ -3,7 +3,7 @@
 module Game where
 
 import Board (Board (Item, hasIndex, (!)), Coord (..), MBoard (write))
-import Control.Monad.Extra (forM, unlessM, when, whenJust, whenM, (&&^))
+import Control.Monad.Extra (filterM, forM, forM_, unlessM, when, whenJust, whenM, (&&^))
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
 import System.IO.Error (alreadyExistsErrorType)
@@ -35,9 +35,10 @@ trackDug pos = do
         )
         $ addToTracked (30, above)
   where
-    hasIndex' i = State.get >>= (\(Game _ b _) -> lift $ hasIndex b i)
-    blockTypeAt i = State.get >>= (\(Game _ b _) -> lift $ b ! i)
     addToTracked i = State.modify' (\g -> g{movingParts = i : movingParts g})
+
+hasIndex' i = State.get >>= (\(Game _ b _) -> lift $ hasIndex b i)
+blockTypeAt i = State.get >>= (\(Game _ b _) -> lift $ b ! i)
 
 canFall :: Block -> Bool
 canFall blockType = blockType == Stone || blockType == Fire
@@ -83,14 +84,21 @@ update ::
     StateT (Game board) m ()
 update = do
     (Game (playerPos, digRequest) board movingParts) <- State.get
-    movingParts' <- fmap concat $ forM movingParts $ \(tick, i) -> lift $ do
+    movingParts' <- fmap concat $ forM movingParts $ \(tick, i) -> do
         let below = movePos i GoDown
-        belowType <- board ! below
+        belowType <- lift $ board ! below
         if belowType == Air || belowType == Stairs
             then
                 if tick > 1
                     then pure [(tick - 1, i)]
-                    else collapseAt board i >> pure [(5, below)]
+                    else do
+                        hitTheGround <- collapseAt i
+                        if hitTheGround
+                            then do
+                                mapM_ explodeAt =<< lift (findExplosions board (i `movePos` GoDown))
+                                pure []
+                            else
+                                pure [(5, below)]
             else pure []
     State.modify' (\g -> g{movingParts = movingParts'})
 
@@ -122,16 +130,50 @@ update = do
 collapseAt ::
     forall m board.
     (MBoard board m, Item board ~ Block) =>
+    Coord ->
+    StateT (Game board) m Bool
+collapseAt i = go i >> hitTheGround
+  where
+    hitTheGround =
+        let below = i `movePos` GoDown `movePos` GoDown
+            isGround t = t /= Air && t /= Stairs
+         in isGround <$> blockTypeAt below
+    go j = do
+        whenM (hasIndex' j &&^ (canFall <$> blockTypeAt j)) $ do
+            blockType <- blockTypeAt j
+            write' j Air
+            write' (movePos j GoDown) blockType
+            go (moveUp j)
+
+write' i x = State.get >>= (\(Game _ b _) -> lift $ write b i x)
+
+explodeAt ::
+    (MBoard board m, Item board ~ Block) =>
+    Coord ->
+    StateT (Game board) m ()
+explodeAt (Coord x y) = mapM_ blow =<< neighbours
+  where
+    blow i = write' i Air
+    neighbours = filterM hasIndex' [Coord x' y' | x' <- [x - 1 .. x + 1], y' <- [y - 1 .. y + 1]]
+
+findExplosions ::
+    (MBoard board m, Item board ~ Block) =>
     board ->
     Coord ->
-    m ()
-collapseAt board j = do
-    isValid <- hasIndex board j
-    blockType <- board ! j
-    when (isValid && canFall blockType) $ do
-        write board j Air
-        write board (movePos j GoDown) blockType
-        collapseAt board (moveUp j)
+    m [Coord]
+findExplosions board i = (++) <$> go GoUp i <*> go GoDown i
+  where
+    go dir i = do
+        isValid <- hasIndex board i
+        let i' = i `movePos` dir
+        if isValid
+            then do
+                blockType <- board ! i
+                case blockType of
+                    Fire -> (i :) <$> go dir i'
+                    Stone -> go dir i'
+                    _ -> pure []
+            else pure []
 
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)
