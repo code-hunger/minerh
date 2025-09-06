@@ -1,3 +1,5 @@
+{-# LANGUAGE ImpredicativeTypes #-}
+
 module Main where
 
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
@@ -10,7 +12,7 @@ import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import Board (Coord (..))
+import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..))
 import qualified Game
@@ -18,7 +20,16 @@ import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
 
 main :: IO ()
-main = evalStateT (runVty f) =<< start
+main = do
+    array <- initBoard Dirt size
+    withArray array $ \board -> do
+        () <- flip evalStateT (mkStdGen 42) $ do
+            nextBoard board weigh
+            nextBoard board weigh
+            nextBoard board weigh
+        Just startPos <- justify board $ Coord 23 0
+        evalStateT (runVty f) $
+            Game (startPos, Nothing) board []
   where
     f render =
         let draw' Die = pure Die
@@ -31,7 +42,7 @@ main = evalStateT (runVty f) =<< start
 
 update ::
     [UserEvent] ->
-    StateT (Game (IOArray (Int, Int) Block)) IO UpdateStatus
+    StateT (Game (ArrayS (IOArray (Int, Int) Block) ph) ph) IO UpdateStatus
 update [] = Game.update >> pure Live
 update (e : events) =
     if e == KEsc || e == KQ
@@ -42,14 +53,6 @@ update (e : events) =
 
 size :: BoardSize
 size = BoardSize{cols = 50, rows = 90}
-
-start :: IO (Game (IOArray (Int, Int) Block))
-start = do
-    board <- initBoard Dirt size
-    () <- flip evalStateT (mkStdGen 42) $ do
-        nextBoard board weigh
-        nextBoard board weigh
-    return $ Game (Coord 23 0, Nothing) board []
 
 boards :: [Array (Int, Int) Block]
 boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh
@@ -67,7 +70,7 @@ weigh current neighbours =
             switch Dirt = Stone
             switch _ = Air -- error "Can generate Dirt and Stone for now."
             next = if r < threshold then switch current else current
-         in pure $ if next == Stone && r * 10 < threshold then Fire else next
+         in pure $ if next == Stone && r * 3 < threshold then Fire else next
   where
     count :: (a -> Bool) -> [a] -> Int
     count xs f = length $ filter xs f

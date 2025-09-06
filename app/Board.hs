@@ -3,9 +3,8 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Board (Board (..), MBoard (..), Coord (..)) where
+module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withArray, unArrayS, ArrayS) where
 
-import Control.Monad.State.Lazy (MonadTrans (lift), StateT)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
@@ -21,53 +20,63 @@ fromCoord (Coord _x _y) = (_y, _x)
 fromCoordPair :: (Coord, Coord) -> ((Int, Int), (Int, Int))
 fromCoordPair = bimap fromCoord fromCoord
 
-inRangeCoord :: (Coord, Coord) -> Coord -> Bool
-inRangeCoord bb i = fromCoordPair bb `inRange` fromCoord i
+inRange' :: Coord -> (Coord, Coord) -> Bool
+inRange' i bb = fromCoordPair bb `inRange` fromCoord i
+
+newtype Index b = Index {unIndex :: Coord} -- do NOT export constructor
 
 -- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
 class (Monad m) => Board board m where
     type Item board :: Type
-    (!) :: board -> Coord -> m (Item board)
-    lines :: board -> m [[(Item board)]]
-    bounds :: board -> m (Coord, Coord)
+    (!) :: board ph -> Index ph -> m (Item board)
+    lines :: board ph -> m [[Item board]]
+    bounds :: board ph -> m (Coord, Coord)
 
-    indices :: board -> m [Coord]
+    indices :: board ph -> m [Index ph]
     -- smells like a space leak if the whole list is computed before returned
-    indices array = map toCoord . range . fromCoordPair <$> bounds array
+    indices array = map (Index . toCoord) . range . fromCoordPair <$> bounds array
 
-    hasIndex :: board -> Coord -> m Bool
-    hasIndex array i = (`inRangeCoord` i) <$> bounds array
+    justify :: board ph -> Coord -> m (Maybe (Index ph))
+    justify array i = do
+        _bounds <- bounds array
+        if i `inRange'` _bounds then pure $ Just (Index i) else pure Nothing
 
-    elems :: board -> m [(Coord, (Item board))]
+    elems :: board ph -> m [(Index ph, Item board)]
     elems b = indices b >>= traverse coupleValue
       where
         coupleValue i = (i,) <$> (b ! i :: m (Item board))
 
 -- A mutable board is a board that can be mutated
 class (Board board m) => MBoard board m where
-    write :: board -> Coord -> Item board -> m ()
+    write :: board ph -> Index ph -> Item board -> m ()
 
-instance (MArray arr el m) => Board (arr (Int, Int) el) m where
-    type Item (arr (Int, Int) el) = el
+newtype ArrayS a ph = ArrayS {unArrayS :: a}
 
-    array ! i = readArray array (y i, x i)
+withArray :: a -> (forall ph. ArrayS a ph -> t) -> t
+withArray a f = f (ArrayS a)
+
+instance (MArray arr el m) => Board (ArrayS (arr (Int, Int) el)) m where
+    type Item (ArrayS (arr (Int, Int) el)) = el
+
+    array ! (Index i) = readArray (unArrayS array) (y i, x i)
 
     lines array = do
-        width <- getWidth array
+        width <- getWidth
 
         let go [] = []
             go xs =
                 let (h, t) = splitAt width xs
                  in h : go t
-        go <$> getElems array
+        go <$> getElems (unArrayS array)
       where
-        getWidth = fmap boundsToWidth . getBounds
-        boundsToWidth ((_, xmin), (_, xmax)) = xmax - xmin + 1
+        getWidth :: m Int
+        getWidth = boundsToWidth <$> bounds array
+        boundsToWidth ((Coord xmin _), (Coord xmax _)) = xmax - xmin + 1
 
-    bounds array = toCoordPair <$> getBounds array
+    bounds array = toCoordPair <$> getBounds (unArrayS array)
       where
         toCoordPair :: ((Int, Int), (Int, Int)) -> (Coord, Coord)
         toCoordPair = bimap toCoord toCoord
 
-instance (MArray arr el m) => MBoard (arr (Int, Int) el) m where
-    write array i = writeArray array (y i, x i)
+instance (MArray arr el m) => MBoard (ArrayS (arr (Int, Int) el)) m where
+    write array (Index i) = writeArray (unArrayS array) (y i, x i)

@@ -2,15 +2,16 @@ module BoardGen where
 
 import Data.Array.MArray (MArray)
 
-import Control.Monad (filterM, guard)
+import Control.Monad (guard)
 import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray)
 
-import Board (Board (..), Coord (Coord), MBoard (..))
+import Board (Board (..), Coord (Coord), Index (unIndex), MBoard (..), withArray)
 import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
 import Data.Foldable (traverse_)
+import Data.Maybe (catMaybes)
 import System.Random (RandomGen)
 
 type CellUpdater m s el = (Monad m) => (el -> [el] -> StateT s m el)
@@ -31,17 +32,18 @@ makePureBoards size g def weigh = runST $ do
             -- type annotation is required here because initBoard is too general and GHC does not
             -- know to instantiate the same `s` variable on both positions here.
             (forall s. ST s (STArray s (Int, Int) b))
-    let go = do
-            a <- freeze board
-            _ <- execStateT (nextBoard board weigh) g
-            rest <- unsafeInterleaveST go
-            pure (a : rest)
-    go
+    withArray board $ \b ->
+        let go = do
+                a <- freeze board
+                _ <- execStateT (nextBoard b weigh) g
+                rest <- unsafeInterleaveST go
+                pure (a : rest)
+         in go
 
 nextBoard ::
-    forall g board m.
+    forall g board ph m.
     (RandomGen g, MBoard board m) =>
-    board ->
+    board ph ->
     CellUpdater m g (Item board) ->
     StateT g m ()
 nextBoard board weigh =
@@ -55,26 +57,27 @@ nextBoard board weigh =
         lift $ write board i nextVal
 
 getNeighbours ::
+    forall m board ph.
     (MBoard board m) =>
-    Coord ->
-    board ->
+    Index ph ->
+    board ph ->
     m [Item board]
-getNeighbours pos board =
-    mapMM
-        (board !)
-        validNeighbourIndices
+getNeighbours pos board = mapMM (board !) neighbours
   where
-    validNeighbourIndices = filterM (hasIndex board) neighbourIndices
-
-    neighbourIndices :: [Coord]
-    neighbourIndices = do
-        let (Coord i j) = pos
+    neighbours :: m [Index ph]
+    neighbours = fmap catMaybes $ sequence $ do
+        let (Coord i j) = unIndex pos
         i' <- [i - 1 .. i + 1]
         j' <- [j - 1 .. j + 1]
         guard $ (i', j') /= (i, j)
-        pure (Coord i' j')
+        pure $ justify board (Coord i' j')
 
-initBoard :: forall m el board. (MArray el board m) => board -> BoardSize -> m (el (Int, Int) board)
+initBoard ::
+    forall m el array.
+    (MArray array el m) =>
+    el ->
+    BoardSize ->
+    m (array (Int, Int) el)
 initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
 initBoard c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
 

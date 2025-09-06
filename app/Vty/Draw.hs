@@ -1,8 +1,9 @@
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Vty.Draw where
 
-import Board (Board (Item), Coord (..))
+import Board (Board (Item), Coord (..), Index (unIndex))
 import qualified Board (lines)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -12,11 +13,11 @@ import Data.Word (Word8)
 import Game (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
-draw :: (Board board m, Item board ~ Block) => Game board -> m Vty.Picture
+draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
-boardToImage :: (Board board m, Item board ~ Block) => Game board -> m Vty.Image
-boardToImage (Game (player, _) board _) =
+boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
+boardToImage (Game (unIndex -> player, _) board _) =
     linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed
