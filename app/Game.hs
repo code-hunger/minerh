@@ -8,7 +8,7 @@ import Board (Board (Item, justify, (!)), Coord (..), Index (unIndex), MBoard (w
 import Control.Monad.Extra
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
@@ -75,29 +75,29 @@ movePlayer ::
     Dir ->
     StateT (Game (board ph) ph) m ()
 movePlayer dir = do
-    (Game (pos, digRequest) board _) <- State.get
-    pos .> dir >>= \case
-        Nothing -> pure ()
-        Just nextPos -> do
-            let alreadyWantsToDigThere =
-                    maybe False (\(DigRequest requestDir _ _) -> requestDir == dir) digRequest
+    (Game (pos, digRequest) _ _) <- State.get
+    let alreadyWantsToDigThere =
+            -- if there's alread a dig request registered in that direction,
+            -- we want to ignore it
+            maybe False (\(DigRequest requestDir _ _) -> requestDir == dir) digRequest
 
-            when (not alreadyWantsToDigThere) $ do
-                nextBlock <- lift $ board ! nextPos
-                thisBlock <- lift $ board ! pos
-                let needsToDig = nextBlock == Dirt
-                when needsToDig $
-                    State.modify' (\g -> g{player = (pos, Just $ DigRequest dir 4 nextPos)})
-                let willMove =
-                        not needsToDig
-                            && nextBlock /= Stone
-                            && nextBlock /= Fire
-                let needsStairs = dir == GoUp && thisBlock == Air && willMove
-                when needsStairs $
-                    lift $
-                        write board pos Stairs
-                when willMove $
-                    State.modify' (\g -> g{player = (nextPos, Nothing)})
+    whenJustM (pos .> dir) (unless alreadyWantsToDigThere . doMove pos)
+  where
+    doMove moveFrom moveTo = do
+        nextBlock <- blockTypeAt moveTo
+        thisBlock <- blockTypeAt moveFrom
+        let needsToDig = nextBlock == Dirt
+        when needsToDig $
+            State.modify' (\g -> g{player = (moveFrom, Just $ DigRequest dir 4 moveTo)})
+        let willMove =
+                not needsToDig
+                    && nextBlock /= Stone
+                    && nextBlock /= Fire
+        let needsStairs = dir == GoUp && thisBlock == Air && willMove
+        when needsStairs $
+            write' moveFrom Stairs
+        when willMove $
+            State.modify' (\g -> g{player = (moveTo, Nothing)})
 
 update ::
     forall m board ph.
@@ -126,7 +126,7 @@ update = do
             whenM (isAir' belowPlayer) $
                 State.modify' $
                     \g -> g{player = (belowPlayer, Nothing)}
-    playerPos .> GoDown >>= maybe (pure ()) dropPlayerIfAir
+    whenJustM (playerPos .> GoDown) dropPlayerIfAir
 
     whenJust digRequest $ \(DigRequest dir ticks nextPos) ->
         if ticks > 0
@@ -195,25 +195,30 @@ findExplosives ::
     StateT (Game (board ph) ph) m [Index ph]
 findExplosives j = liftM2 (++) (searchAbove j) (searchBelow j)
   where
-    searchAbove i = do
-        i .> GoUp >>= \case
-            Nothing -> pure []
-            Just i' -> do
-                blockType <- blockTypeAt i
-                case blockType of
-                    Fire -> (i :) <$> searchAbove i'
-                    Stone -> searchAbove i'
-                    _ -> pure []
+    -- i included!
+    searchAbove i =
+        let rest = i .> GoUp >>= ifJustM searchAbove
+         in blockTypeAt i >>= \case
+                Fire -> (i :) <$> rest
+                Stone -> rest
+                _ -> pure []
+    -- i excluded!
     searchBelow i =
         i .> GoDown
-            >>= maybe
-                (pure [])
+            >>= ifJustM
                 ( \jBelow ->
-                    ifM
-                        ((== Fire) <$> blockTypeAt jBelow)
-                        ((jBelow :) <$> searchBelow jBelow)
-                        (pure [])
+                    blockTypeAt jBelow >>= \case
+                        Fire -> (jBelow :) <$> searchBelow jBelow
+                        _ -> (pure [])
                 )
+
+ifJustM ::
+    (Applicative f, Monoid a) =>
+    (t -> f a) ->
+    Maybe t ->
+    f a
+ifJustM f (Just a) = f a
+ifJustM _ Nothing = pure mempty
 
 data Dir = GoLeft | GoRight | GoUp | GoDown
     deriving (Eq, Show)
