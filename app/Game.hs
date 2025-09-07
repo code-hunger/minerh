@@ -26,7 +26,8 @@ data Game board ph = Game
         ]
     }
 
-type GameM m board ph a =
+type GameM ph m a =
+    forall board.
     ( MBoard board m
     , MonadFail m
     , Item board ~ Block
@@ -35,7 +36,7 @@ type GameM m board ph a =
 
 trackDug ::
     Index ph ->
-    GameM m board ph ()
+    GameM ph m ()
 trackDug pos = do
     unlessM ((== Air) <$> blockTypeAt pos) $
         fail "Called dug on non-air!"
@@ -48,7 +49,7 @@ trackDug pos = do
 
 blockTypeAt ::
     Index ph ->
-    GameM m board ph (Item board)
+    GameM ph m Block
 blockTypeAt i = State.get >>= (\(Game _ board _) -> lift $ board ! i)
 
 canFall :: Block -> Bool
@@ -57,12 +58,12 @@ canFall blockType = blockType == Stone || blockType == Fire
 (.>) ::
     Index ph ->
     Dir ->
-    GameM m board ph (Maybe (Index ph))
+    GameM ph m (Maybe (Index ph))
 i .> dir = justify' (movePos' (unIndex i) dir)
 
 justify' ::
     Coord ->
-    GameM m board ph (Maybe (Index ph))
+    GameM ph m (Maybe (Index ph))
 justify' i =
     State.get >>= \(Game _ board _) -> lift $ justify board i
 
@@ -74,7 +75,7 @@ type AdjacentPair ph = (Index ph, Index ph)
 move ::
     Index ph ->
     Dir ->
-    GameM m board ph (Maybe (Index ph, Index ph))
+    GameM ph m (Maybe (Index ph, Index ph))
 i `move` dir =
     i .> dir >>= \case
         Nothing -> pure Nothing
@@ -83,14 +84,14 @@ i `move` dir =
 moveP ::
     AdjacentPair ph ->
     Dir ->
-    GameM m board ph (Maybe (AdjacentPair ph))
+    GameM ph m (Maybe (AdjacentPair ph))
 (i, j) `moveP` dir = do
     runMaybeT $ do
         i' <- MaybeT $ i .> dir
         j' <- MaybeT $ j .> dir
         pure (i', j')
 
-movePlayer :: Dir -> GameM m board ph ()
+movePlayer :: Dir -> GameM ph m ()
 movePlayer dir = do
     (Game (playerPos, digRequest) _ _) <- State.get
     let alreadyWantsToDigThere =
@@ -120,7 +121,7 @@ movePlayer dir = do
         when willMove $
             State.modify' (\g -> g{player = (moveTo, Nothing)})
 
-update :: GameM m board ph ()
+update :: GameM ph m ()
 update = do
     (Game (playerPos, digRequest) board movingParts) <- State.get
     movingParts' <- fmap concat $ forM movingParts $ \(tick, movingPart) -> do
@@ -168,7 +169,7 @@ update = do
 
 pullDownAt ::
     AdjacentPair ph ->
-    GameM m board ph (Maybe (AdjacentPair ph))
+    GameM ph m (Maybe (AdjacentPair ph))
 pullDownAt i = go i >> hitTheGround
   where
     hitTheGround =
@@ -189,13 +190,13 @@ pullDownAt i = go i >> hitTheGround
 
 write' ::
     Index ph ->
-    Item board ->
-    GameM m board ph ()
+    Block ->
+    GameM ph m ()
 write' i val = State.get >>= (\(Game _ b _) -> lift $ write b i val)
 
 explodeAt ::
     Index ph ->
-    GameM m board ph ()
+    GameM ph m ()
 explodeAt (unIndex -> i) = mapM_ blow =<< neighbours
   where
     blow j = write' j Air
@@ -203,7 +204,7 @@ explodeAt (unIndex -> i) = mapM_ blow =<< neighbours
 
 findExplosives ::
     Index ph ->
-    GameM m board ph [Index ph]
+    GameM ph m [Index ph]
 findExplosives j = liftM2 (++) (searchAbove j) (searchBelow j)
   where
     -- i included!
