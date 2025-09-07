@@ -1,5 +1,3 @@
-{-# LANGUAGE ImpredicativeTypes #-}
-
 module Main where
 
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
