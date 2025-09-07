@@ -5,6 +5,7 @@
 module Game where
 
 import Board (Board (Item, justify, (!)), Coord (..), Index (unIndex), MBoard (write))
+import BoardGen (mapMM_)
 import Control.Monad.Extra
 import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
@@ -16,14 +17,17 @@ data Block = Air | Dirt | Stone | Stairs | Fire
 
 data DigRequest ph = DigRequest Dir Int (Index ph)
 
+type AdjacentPair ph = (Index ph, Index ph)
+
+type MovingPart ph =
+    ( Int -- how many ticks should pass until thhe part drops by 1 block
+    , AdjacentPair ph -- the bottom part of a collapsing column
+    )
+
 data Game board ph = Game
     { player :: (Index ph, Maybe (DigRequest ph))
     , board :: board
-    , movingParts ::
-        [ ( Int -- how many ticks should pass until thhe part drops by 1 block
-          , AdjacentPair ph -- the bottom part of a collapsing column
-          )
-        ]
+    , movingParts :: [MovingPart ph]
     }
 
 type GameM ph m a =
@@ -69,8 +73,6 @@ justify' i =
 
 moveUp' :: Coord -> Coord
 moveUp' = (`movePos'` GoUp)
-
-type AdjacentPair ph = (Index ph, Index ph)
 
 move ::
     Index ph ->
@@ -121,51 +123,67 @@ movePlayer dir = do
         when willMove $
             State.modify' (\g -> g{player = (moveTo, Nothing)})
 
-update :: GameM ph m ()
+update :: (State.MonadIO m) => GameM ph m ()
 update = do
-    (Game (playerPos, digRequest) board movingParts) <- State.get
-    movingParts' <- fmap concat $ forM movingParts $ \(tick, movingPart) -> do
-        let (fallTo, _) = movingPart
-        belowType <- blockTypeAt fallTo
-        if belowType == Air || belowType == Stairs
-            then
-                if tick > 1
-                    then pure [(tick - 1, movingPart)]
-                    else do
-                        pullDownAt movingPart >>= \case
-                            Nothing -> do
-                                mapM_ explodeAt =<< findExplosives fallTo
-                                pure []
-                            Just movingPart' ->
-                                pure [(5, movingPart')]
-            else pure []
-    State.modify' (\g -> g{movingParts = movingParts'})
+    updateMovingParts
+    dropPlayerIfAir
+    updateDigRequest
 
-    let isAir' = fmap (Air ==) . blockTypeAt
-    let dropPlayerIfAir belowPlayer =
-            whenM (isAir' belowPlayer) $
-                State.modify' $
-                    \g -> g{player = (belowPlayer, Nothing)}
-    whenJustM (playerPos .> GoDown) dropPlayerIfAir
-
+updateDigRequest :: GameM ph m ()
+updateDigRequest = do
+    g@(Game (playerPos, digRequest) _ _) <- State.get
     whenJust digRequest $ \(DigRequest dir ticks nextPos) ->
-        if ticks > 0
-            then State.modify' (\g -> g{player = (playerPos, Just (DigRequest dir (ticks - 1) nextPos))})
-            else do
-                lift (write board nextPos Air)
+        case ticks of
+            0 -> do
+                write' nextPos Air
+                State.put $
+                    g
+                        { player =
+                            -- if we dug up, we stay here; if we dug down - we'll fall anyway,
+                            -- so we only need to care for left and right
+                            ( if dir == GoLeft || dir == GoRight then nextPos else playerPos
+                            , -- dig request evaluated, reset it!
+                              Nothing
+                            )
+                        }
                 trackDug nextPos
-                State.modify'
-                    ( \g ->
-                        g
-                            { player =
-                                -- if we dug up, we stay here; if we dug down - we'll fall anyway,
-                                -- so we only need to care for left and right
-                                ( if dir == GoLeft || dir == GoRight then nextPos else playerPos
-                                , -- dig request evaluated, reset it!
-                                  Nothing
-                                )
-                            }
-                    )
+            _ ->
+                State.put $
+                    g{player = (playerPos, Just (DigRequest dir (ticks - 1) nextPos))}
+
+dropPlayerIfAir :: GameM ph m ()
+dropPlayerIfAir =
+    whenJustM belowPlayerM $ \belowPlayer ->
+        whenM (isAir' belowPlayer) $
+            State.modify' $
+                \g -> g{player = (belowPlayer, Nothing)}
+  where
+    isAir' = fmap (Air ==) . blockTypeAt
+
+    belowPlayerM :: GameM ph m (Maybe (Index ph))
+    belowPlayerM = State.get >>= \(Game (playerPos, _) _ _) -> playerPos .> GoDown
+
+updateMovingParts :: (State.MonadIO m) => GameM ph m ()
+updateMovingParts = do
+    g@(Game _ _ movingParts) <- State.get
+    movingParts' <- mapM updateMovingPart movingParts
+    State.put $ g{movingParts = catMaybes movingParts'}
+
+updateMovingPart :: MovingPart ph -> GameM ph m (Maybe (MovingPart ph))
+updateMovingPart (1, movingPart@(fallTo, _)) = do
+    belowType <- blockTypeAt fallTo
+    if belowType == Air || belowType == Stairs
+        then do
+            pullDownAt movingPart >>= \case
+                Nothing -> do
+                    explode
+                    pure Nothing
+                Just movingPart' ->
+                    pure $ Just (5, movingPart')
+        else pure Nothing
+  where
+    explode = mapMM_ explodeAt $ findExplosives fallTo
+updateMovingPart (tick, movingPart) = pure $ Just (tick - 1, movingPart)
 
 pullDownAt ::
     AdjacentPair ph ->
@@ -197,10 +215,13 @@ write' i val = State.get >>= (\(Game _ b _) -> lift $ write b i val)
 explodeAt ::
     Index ph ->
     GameM ph m ()
-explodeAt (unIndex -> i) = mapM_ blow =<< neighbours
-  where
-    blow j = write' j Air
-    neighbours = fmap catMaybes . mapM justify' $ [Coord x' y' | x' <- [x i - 1 .. x i + 1], y' <- [y i - 1 .. y i + 1]]
+explodeAt = mapMM_ (`write'` Air) . neighbours
+
+neighbours :: Index ph -> GameM ph m [Index ph]
+neighbours (unIndex -> i) =
+    fmap catMaybes
+        . mapM justify'
+        $ [Coord x' y' | x' <- [x i - 1 .. x i + 1], y' <- [y i - 1 .. y i + 1]]
 
 findExplosives ::
     Index ph ->
