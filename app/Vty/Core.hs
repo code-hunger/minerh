@@ -1,7 +1,7 @@
 module Vty.Core (runVty, UserEvent (..)) where
 
 import qualified Graphics.Vty as Vty
-import Graphics.Vty.Platform.Unix (mkVty)
+import Graphics.Vty.CrossPlatform (mkVty)
 
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Graphics.Vty.Input.Events (Event (EvKey))
