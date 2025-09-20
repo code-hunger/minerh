@@ -36,6 +36,11 @@ class (Monad m) => Board board m where
     lines :: board ph -> m [[Item board]]
     bounds :: board ph -> m (Coord, Coord)
 
+    getWidth :: board ph -> m Int
+    getWidth array = boundsToWidth <$> bounds array
+      where
+        boundsToWidth (Coord xmin _, Coord xmax _) = xmax - xmin + 1
+
     indices :: board ph -> m [Index ph]
     -- smells like a space leak if the whole list is computed before returned
     indices array = map (Index . toCoord) . range . fromCoordPair <$> bounds array
@@ -71,17 +76,13 @@ instance (MArray arr el m) => Board (ArrayS (arr (Int, Int) el)) m where
     array ! (Index i) = readArray (unArrayS array) (y i, x i)
 
     lines array = do
-        width <- getWidth
+        width <- getWidth array
 
         let go [] = []
             go xs =
                 let (h, t) = splitAt width xs
                  in h : go t
         go <$> getElems (unArrayS array)
-      where
-        getWidth :: m Int
-        getWidth = boundsToWidth <$> bounds array
-        boundsToWidth ((Coord xmin _), (Coord xmax _)) = xmax - xmin + 1
 
     bounds array = toCoordPair <$> getBounds (unArrayS array)
       where

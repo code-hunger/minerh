@@ -3,7 +3,7 @@
 
 module Vty.Draw where
 
-import Board (Board (Item), Coord (..), Index (unIndex))
+import Board (Board (Item, bounds, getWidth), Coord (..), Index (unIndex))
 import qualified Board (lines)
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -17,8 +17,9 @@ draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Pictu
 draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
-boardToImage (Game (unIndex -> player, playerState) board movingParts) =
-    (stats <>) . linesToPicture <$> Board.lines board
+boardToImage (Game (unIndex -> player, playerState) board movingParts) = do
+    width <- getWidth board
+    ((stats <> topBorder width) <>) . linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed
     printLine (row, xs) =
@@ -26,12 +27,17 @@ boardToImage (Game (unIndex -> player, playerState) board movingParts) =
                 if x player == col && y player == row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
-            -- We add an empty string at the end of each line to fix right border's colours.
+         in -- We add an empty string at the end of each line to fix right border's colours.
             -- Otherwise Vty semms not to clear the colour immediately after each block,
             -- which causes ugly trailing non-black colours to be draw at the end making the right
             -- border jagged.
-            endOfLine = Vty.string Vty.defAttr ""
-         in Vty.horizCat (toPic <$> indexed xs) Vty.<|> endOfLine
+            verticalBorder
+                Vty.<|> Vty.horizCat (toPic <$> indexed xs)
+                Vty.<|> verticalBorder
+    verticalBorder = Vty.string Vty.defAttr "│"
+    topBorder width = Vty.string Vty.defAttr $ "┌" ++ (concat . replicate width $ horizontalBorderChar) ++ "┐"
+      where
+        horizontalBorderChar = "──"
 
     stats =
         Vty.string Vty.defAttr $
