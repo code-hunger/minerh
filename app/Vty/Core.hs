@@ -21,7 +21,7 @@ runVty f = do
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
 
-data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KRight | Other deriving (Show, Eq)
+data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KRight | Save | Other deriving (Show, Eq)
 
 toUserEvent :: Vty.Event -> UserEvent
 toUserEvent = \case
@@ -35,4 +35,5 @@ toUserEvent = \case
     (EvKey (Vty.KChar 'l') []) -> KRight
     (EvKey Vty.KLeft []) -> KLeft
     (EvKey (Vty.KChar 'h') []) -> KLeft
+    (EvKey (Vty.KChar 's') []) -> Save
     _ -> Other

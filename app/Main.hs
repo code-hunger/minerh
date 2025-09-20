@@ -4,7 +4,7 @@ import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoa
 import Vty.Core (UserEvent (..), runVty)
 import Vty.Draw (draw)
 
-import Control.Monad.State (MonadIO (liftIO), StateT, evalStateT)
+import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
 import qualified Control.Monad.State as State (get, state)
 import Data.Array (Array)
 import Data.Array.IO (IOArray)
@@ -16,19 +16,31 @@ import Game (Block (..), Dir (..), Game (..), PlayerFallingState (..))
 import qualified Game
 import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
+import Store (deserialize, serialize)
+import System.Directory.Extra (doesFileExist)
+
+storeFileName :: String
+storeFileName = "store"
 
 main :: IO ()
 main = do
-    array <- initBoard Dirt size
-    withArray array $ \board -> do
-        () <- flip evalStateT (mkStdGen 42) $ do
-            nextBoard board weigh
-            nextBoard board weigh
-            nextBoard board weigh
-        Just startPos <- justify board $ Coord 23 0
-        evalStateT (runVty f) $
-            Game (startPos, Standing, Nothing) board []
+    hasStore <- doesFileExist storeFileName
+    if hasStore then loadGame else newGame
   where
+    newGame = do
+        array <- initBoard Dirt size
+        withArray array $ \board -> do
+            () <- flip evalStateT (mkStdGen 42) $ do
+                nextBoard board weigh
+                nextBoard board weigh
+                nextBoard board weigh
+            Just startPos <- justify board $ Coord 23 0
+            evalStateT (runVty f) $
+                Game (startPos, Standing, Nothing) board []
+    loadGame = do
+        gameData <- readFile storeFileName
+        deserialize gameData $ evalStateT (runVty f)
+
     f render =
         let draw' Die = pure Die
             draw' Live = do
@@ -42,12 +54,14 @@ update ::
     [UserEvent] ->
     StateT (Game (ArrayS (IOArray (Int, Int) Block) ph) ph) IO UpdateStatus
 update [] = Game.update >> pure Live
-update (e : events) =
-    if e == KEsc || e == KQ
-        then pure Die
-        else do
-            mapM_ Game.movePlayer $ toMovement e
-            update events
+update (KEsc : _) = pure Die
+update (KQ : _) = pure Die
+update (Save : _) = do
+    liftIO . writeFile storeFileName =<< lift . serialize =<< State.get
+    pure Live
+update (e : events) = do
+    mapM_ Game.movePlayer $ toMovement e
+    update events
 
 size :: BoardSize
 size = BoardSize{cols = 50, rows = 90}

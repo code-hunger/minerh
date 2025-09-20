@@ -27,7 +27,7 @@ type MovingPart ph =
     , AdjacentPair ph -- the bottom part of a collapsing column
     )
 
-data PlayerFallingState = Standing | Falling deriving (Eq)
+data PlayerFallingState = Standing | Falling deriving (Eq, Show, Read)
 
 data Game board ph = Game
     { player ::

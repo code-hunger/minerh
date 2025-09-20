@@ -12,7 +12,7 @@ import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArr
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
 
-data Coord = Coord {x :: Int, y :: Int} deriving (Show, Eq)
+data Coord = Coord {x :: Int, y :: Int} deriving (Show, Read, Eq)
 
 toCoord :: (Int, Int) -> Coord
 toCoord (i, j) = Coord j i
@@ -27,7 +27,7 @@ inRange' :: Coord -> (Coord, Coord) -> Bool
 inRange' i bb = fromCoordPair bb `inRange` fromCoord i
 
 newtype Index b = Index {unIndex :: Coord} -- do NOT export constructor
-    deriving newtype (Show)
+    deriving newtype (Show, Read)
 
 -- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
 class (Monad m) => Board board m where

@@ -6,7 +6,7 @@ import Control.Monad (guard)
 import Control.Monad.ST.Lazy (ST, runST)
 import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
-import Data.Array.ST (STArray, freeze, newArray)
+import Data.Array.ST (STArray, freeze, newArray, newListArray)
 
 import Board (Board (..), Coord (Coord), Index (unIndex), MBoard (..), withArray)
 import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
@@ -16,7 +16,7 @@ import System.Random (RandomGen)
 
 type CellUpdater m s el = (Monad m) => (el -> [el] -> StateT s m el)
 
-data BoardSize = BoardSize {rows :: Int, cols :: Int}
+data BoardSize = BoardSize {rows :: Int, cols :: Int} deriving (Read, Show)
 
 makePureBoards ::
     forall g b.
@@ -78,8 +78,16 @@ initBoard ::
     el ->
     BoardSize ->
     m (array (Int, Int) el)
-initBoard _ bs | rows bs < 1 || cols bs < 1 = error "initBoard expects positive rows and cols."
-initBoard c bs = newArray ((0, 0), (rows bs - 1, cols bs - 1)) c
+initBoard _ size | rows size < 1 || cols size < 1 = error "initBoard expects positive rows and cols."
+initBoard c size = newArray ((0, 0), (rows size - 1, cols size - 1)) c
+
+loadBoard ::
+    forall m el array.
+    (MArray array el m) =>
+    [el] ->
+    BoardSize ->
+    m (array (Int, Int) el)
+loadBoard boardData size = newListArray ((0, 0), (rows size - 1, cols size - 1)) boardData
 
 mapMM_ :: (Foldable t, Monad m) => (a -> m b) -> m (t a) -> m ()
 mapMM_ f as = traverse_ f =<< as
