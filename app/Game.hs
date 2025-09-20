@@ -173,7 +173,7 @@ computeNewFallState pos =
     ifM ((Stairs ==) <$> blockTypeAt pos) (pure Standing) $
         -- if we won't step on stairs (which are safe), we have to check what's below
         pos .> GoDown >>= \case
-            Nothing -> error "Fell into the abyss!"
+            Nothing -> logInfo "Tried to fall into the abyss! Kept it Standing though." >> pure Standing
             Just belowNext ->
                 ifM
                     (isAir belowNext)
