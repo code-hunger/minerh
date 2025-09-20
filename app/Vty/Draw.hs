@@ -10,21 +10,21 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Game (Block (..), Game (Game))
+import Game (Block (..), Game (Game), playerPos)
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
-boardToImage (Game (unIndex -> player, playerState) board movingParts) = do
+boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
     width <- getWidth board
-    ((stats <> topBorder width) <>) . linesToPicture <$> Board.lines board
+    (stats <>) . addHorizontalBorders width . linesToPicture . cutPlayerView <$> Board.lines board
   where
-    linesToPicture = mconcat . fmap printLine . indexed
+    linesToPicture = mconcat . fmap printLine . indexed startFrom
     printLine (row, xs) =
         let toPic (col, block) =
-                if x player == col && y player == row
+                if x playerPos == col && y playerPos == row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
          in -- We add an empty string at the end of each line to fix right border's colours.
@@ -32,12 +32,18 @@ boardToImage (Game (unIndex -> player, playerState) board movingParts) = do
             -- which causes ugly trailing non-black colours to be draw at the end making the right
             -- border jagged.
             verticalBorder
-                Vty.<|> Vty.horizCat (toPic <$> indexed xs)
+                Vty.<|> Vty.horizCat (toPic <$> indexed 0 xs)
                 Vty.<|> verticalBorder
     verticalBorder = Vty.string Vty.defAttr "│"
-    topBorder width = Vty.string Vty.defAttr $ "┌" ++ (concat . replicate width $ horizontalBorderChar) ++ "┐"
+
+    addHorizontalBorders width pic = topBorder width <> pic <> bottomBorder width
       where
+        topBorder width = Vty.string Vty.defAttr $ "┌" ++ (concat . replicate width $ horizontalBorderChar) ++ "┐"
+        bottomBorder width = Vty.string Vty.defAttr $ "└" ++ (concat . replicate width $ horizontalBorderChar) ++ "┘"
         horizontalBorderChar = "──"
+
+    cutPlayerView = take 40 . drop startFrom
+    startFrom = (y playerPos - 20) `max` 0
 
     stats =
         Vty.string Vty.defAttr $
@@ -54,7 +60,7 @@ boardToImage (Game (unIndex -> player, playerState) board movingParts) = do
     stringToUtf8 :: String -> [Word8]
     stringToUtf8 = BS.unpack . TE.encodeUtf8 . T.pack
 
-    indexed = zip [0 ..]
+    indexed startFrom = zip [startFrom ..]
 
 printBlock :: Block -> String
 printBlock Stone = "🪨"
