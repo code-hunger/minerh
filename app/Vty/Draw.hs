@@ -3,14 +3,14 @@
 
 module Vty.Draw where
 
-import Board (Board (Item, bounds, getWidth), Coord (..), Index (unIndex))
-import qualified Board (lines)
+import Board (Board (Item, getWidth, justify, streamRow), Coord (..), Index (unIndex))
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Game (Block (..), Game (Game), playerPos)
+import Control.Monad.Extra (mapMaybeM, mconcatMapM)
+import Game (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
@@ -18,11 +18,12 @@ draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
 boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
-    width <- getWidth board
-    (stats <>) . addHorizontalBorders width . linesToPicture . cutPlayerView <$> Board.lines board
+    (min 50 -> width) <- getWidth board
+    ys <- mapMaybeM (justify board) [Coord xStartFrom y' | y' <- [yStartFrom .. yStartFrom + width]]
+    ims <- flip mconcatMapM (indexed yStartFrom ys) $ \(yi, y') -> Board.streamRow board y' width (printLine yi)
+    pure . (stats <>) $ addHorizontalBorders width ims
   where
-    linesToPicture = mconcat . fmap printLine . indexed startFrom
-    printLine (row, xs) =
+    printLine row xs =
         let toPic (col, block) =
                 if x playerPos == col && y playerPos == row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
@@ -32,7 +33,7 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
             -- which causes ugly trailing non-black colours to be draw at the end making the right
             -- border jagged.
             verticalBorder
-                Vty.<|> Vty.horizCat (toPic <$> indexed 0 xs)
+                Vty.<|> Vty.horizCat (toPic <$> indexed xStartFrom xs)
                 Vty.<|> verticalBorder
     verticalBorder = Vty.string Vty.defAttr "│"
 
@@ -42,8 +43,8 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
         bottomBorder width = Vty.string Vty.defAttr $ "└" ++ (concat . replicate width $ horizontalBorderChar) ++ "┘"
         horizontalBorderChar = "──"
 
-    cutPlayerView = take 40 . drop startFrom
-    startFrom = (y playerPos - 20) `max` 0
+    yStartFrom = (y playerPos - 20) `max` 0
+    xStartFrom = (x playerPos - 20) `max` 0
 
     stats =
         Vty.string Vty.defAttr $

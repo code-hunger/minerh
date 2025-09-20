@@ -7,7 +7,7 @@
 
 module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withArray, unArrayS, ArrayS) where
 
-import Control.Monad.Extra (ifM)
+import Control.Monad.Extra (forM, ifM)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
@@ -35,6 +35,8 @@ class (Monad m) => Board board m where
     (!) :: board ph -> Index ph -> m (Item board)
     lines :: board ph -> m [[Item board]]
     bounds :: board ph -> m (Coord, Coord)
+
+    streamRow :: board ph -> Index ph -> Int -> ([Item board] -> r) -> m r
 
     getWidth :: board ph -> m Int
     getWidth array = boundsToWidth <$> bounds array
@@ -74,6 +76,10 @@ instance (MArray arr el m) => Board (ArrayS (arr (Int, Int) el)) m where
     type Item (ArrayS (arr (Int, Int) el)) = el
 
     array ! (Index i) = readArray (unArrayS array) (y i, x i)
+
+    streamRow array (Index i) n f = do
+        els <- forM [x i .. x i + n - 1] $ \x' -> readArray (unArrayS array) (fromCoord $ Coord x' (y i))
+        pure $ f els
 
     lines array = do
         width <- getWidth array
