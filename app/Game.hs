@@ -50,7 +50,7 @@ trackDug ::
     Index ph ->
     GameM ph m (Maybe (AdjacentPair ph))
 trackDug pos = do
-    unlessM ((== Air) <$> blockTypeAt pos) $
+    unlessM (isAir pos) $
         fail "Called track dug on non-air!"
 
     (pos .> GoUp) >>= \case
@@ -172,7 +172,7 @@ computeNewFallState pos =
             Nothing -> error "Fell into the abyss!"
             Just belowNext ->
                 ifM
-                    ((Air ==) <$> blockTypeAt belowNext)
+                    (isAir belowNext)
                     (pure Falling)
                     (pure Standing)
 
@@ -227,15 +227,19 @@ updatePlayerState = do
 dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
     whenJustM belowPlayerM $ \belowPlayer ->
-        whenM (isAir' belowPlayer ^&&^ (not <$> isOnStairs)) $ do
+        whenM (isAir belowPlayer ^&&^ (not <$> isOnStairs)) $ do
             fallingState' <- computeNewFallState belowPlayer
             State.modify' $
                 \g -> g{player = (belowPlayer, fallingState')}
   where
-    isAir' = fmap (Air ==) . blockTypeAt
-
     belowPlayerM :: GameM ph m (Maybe (Index ph))
     belowPlayerM = playerPos >>= (.> GoDown)
+
+    isOnStairs :: GameM ph m Bool
+    isOnStairs = (Stairs ==^) . blockTypeAt =<< playerPos
+
+isAir :: Index ph -> GameM ph m Bool
+isAir = (Air ==^) . blockTypeAt
 
 (^&&^) :: (Monad m) => m Bool -> m Bool -> m Bool
 (^&&^) = liftM2 (&&)
@@ -248,9 +252,6 @@ playerPos = State.gets $ \(Game (p, _) _ _) -> p
 
 playerState :: GameM ph m (PlayerState ph)
 playerState = State.gets $ \(Game (_, s) _ _) -> s
-
-isOnStairs :: GameM ph m Bool
-isOnStairs = fmap (Stairs ==) $ blockTypeAt =<< playerPos
 
 updateMovingParts :: (State.MonadIO m) => GameM ph m ()
 updateMovingParts = do
