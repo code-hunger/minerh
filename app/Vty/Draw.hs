@@ -26,8 +26,12 @@ boardToImage (Game (unIndex -> player, _, _) board _) =
                 if x player == col && y player == row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
-         in Vty.horizCat $ toPic <$> indexed xs :: Vty.Image
-
+            -- We add an empty string at the end of each line to fix right border's colours.
+            -- Otherwise Vty semms not to clear the colour immediately after each block,
+            -- which causes ugly trailing non-black colours to be draw at the end making the right
+            -- border jagged.
+            endOfLine = Vty.string Vty.defAttr ""
+         in Vty.horizCat (toPic <$> indexed xs) Vty.<|> endOfLine
     attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
     attr Stone = Vty.defAttr `Vty.withForeColor` Vty.linearColor @Int 150 150 150
     attr Fire = Vty.defAttr `Vty.withBackColor` Vty.red
