@@ -1,10 +1,13 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withArray, unArrayS, ArrayS) where
 
+import Control.Monad.Extra (ifM)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
@@ -24,6 +27,7 @@ inRange' :: Coord -> (Coord, Coord) -> Bool
 inRange' i bb = fromCoordPair bb `inRange` fromCoord i
 
 newtype Index b = Index {unIndex :: Coord} -- do NOT export constructor
+    deriving newtype (Show)
 
 -- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
 class (Monad m) => Board board m where
@@ -36,10 +40,16 @@ class (Monad m) => Board board m where
     -- smells like a space leak if the whole list is computed before returned
     indices array = map (Index . toCoord) . range . fromCoordPair <$> bounds array
 
+    hasIndex :: board ph -> Coord -> m Bool
+    hasIndex array i = inRange' i <$> bounds array
+
     justify :: board ph -> Coord -> m (Maybe (Index ph))
     justify array i = do
-        _bounds <- bounds array
-        if i `inRange'` _bounds then pure $ Just (Index i) else pure Nothing
+        isValid <- array `hasIndex` i
+        pure $
+            if isValid
+                then Just (Index i)
+                else Nothing
 
     elems :: board ph -> m [(Index ph, Item board)]
     elems b = indices b >>= traverse coupleValue
