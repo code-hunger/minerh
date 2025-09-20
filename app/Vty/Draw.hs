@@ -10,15 +10,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Game (Block (..), Game (Game))
+import Game (Block (..), DigRequest (DigRequest), Game (Game, movingParts))
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
-boardToImage (Game (unIndex -> player, _, _) board _) =
-    linesToPicture <$> Board.lines board
+boardToImage (Game (unIndex -> player, fallingState, digRequest) board movingParts) =
+    (stats <>) . linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed
     printLine (row, xs) =
@@ -32,6 +32,15 @@ boardToImage (Game (unIndex -> player, _, _) board _) =
             -- border jagged.
             endOfLine = Vty.string Vty.defAttr ""
          in Vty.horizCat (toPic <$> indexed xs) Vty.<|> endOfLine
+
+    stats =
+        Vty.string Vty.defAttr $
+            "Stats: moving parts ("
+                ++ show (length movingParts)
+                ++ "), player is "
+                ++ show fallingState
+                ++ maybe "" (\(DigRequest dir _ _) -> " digging " ++ show dir) digRequest
+
     attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
     attr Stone = Vty.defAttr `Vty.withForeColor` Vty.linearColor @Int 150 150 150
     attr Fire = Vty.defAttr `Vty.withBackColor` Vty.red
