@@ -21,16 +21,20 @@ runVty f = do
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
 
-data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KRight | Save | Other deriving (Show, Eq)
+data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KUpShift | KDownShift | KRight | Save | Other deriving (Show, Eq)
 
 toUserEvent :: Vty.Event -> UserEvent
 toUserEvent = \case
     (EvKey Vty.KEsc []) -> KEsc
     (EvKey (Vty.KChar 'q') []) -> KQ
+    (EvKey Vty.KDown [Vty.MShift]) -> KDownShift
+    (EvKey (Vty.KChar 'J') []) -> KDownShift
     (EvKey Vty.KDown []) -> KDown
     (EvKey (Vty.KChar 'j') []) -> KDown
     (EvKey Vty.KUp []) -> KUp
     (EvKey (Vty.KChar 'k') []) -> KUp
+    (EvKey Vty.KUp [Vty.MShift]) -> KUpShift
+    (EvKey (Vty.KChar 'K') []) -> KUpShift
     (EvKey Vty.KRight []) -> KRight
     (EvKey (Vty.KChar 'l') []) -> KRight
     (EvKey Vty.KLeft []) -> KLeft

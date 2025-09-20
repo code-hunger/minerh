@@ -17,8 +17,6 @@ import Data.Traversable (for)
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
 
-data DigRequest ph = DigRequest Dir Int (Index ph) deriving (Show, Read)
-
 type AdjacentPair ph = (Index ph, Index ph)
 
 type MovingPart ph =
@@ -28,8 +26,9 @@ type MovingPart ph =
 
 data PlayerState ph
     = Standing
-    | Digging (DigRequest ph)
+    | Digging Dir Int (Index ph)
     | Falling
+    | Running Dir (Index ph)
     deriving (Show, Read)
 
 data Game board ph = Game
@@ -79,6 +78,9 @@ blockTypeAt i = State.get >>= (\(Game _ board _) -> lift $ board ! i)
 canFall :: Block -> Bool
 canFall blockType = blockType == Stone || blockType == Fire
 
+canBreathe :: Block -> Bool
+canBreathe blockType = blockType == Air || blockType == Stairs
+
 (.>) ::
     Index ph ->
     Dir ->
@@ -113,6 +115,20 @@ moveP ::
         j' <- MaybeT $ j .> dir
         pure (i', j')
 
+runPlayerUp :: Dir -> GameM ph m ()
+runPlayerUp dir = do
+    p <- playerPos
+    whenM isStanding $
+        whenJustM (p .> dir) $ \nextPos ->
+            State.modify' $
+                \g -> g{player = (p, Running dir nextPos)}
+
+isFalling :: GameM ph m Bool
+isFalling = (\case Falling -> True; _ -> False) <$> playerState
+
+isStanding :: GameM ph m Bool
+isStanding = (\case Standing -> True; _ -> False) <$> playerState
+
 movePlayer :: Dir -> GameM ph m ()
 movePlayer dir = do
     (Game (playerPos, playerState) _ _) <- State.get
@@ -120,11 +136,10 @@ movePlayer dir = do
             -- if there's alread a dig request registered in that direction,
             -- we want to ignore it
             case playerState of
-                Digging (DigRequest requestDir _ _) -> requestDir == dir
+                (Digging requestDir _ _) -> requestDir == dir
                 _ -> False
-        isFalling = case playerState of Falling -> True; _ -> False
 
-    unless isFalling $
+    unlessM isFalling $
         whenJustM (playerPos `move` dir) $
             unless alreadyWantsToDigThere
                 . doMove
@@ -134,7 +149,7 @@ movePlayer dir = do
         nextBlockType <- blockTypeAt moveTo
         let needsToDig = nextBlockType == Dirt
         when needsToDig $
-            State.modify' (\g -> g{player = (moveFrom, Digging $ DigRequest dir 4 moveTo)})
+            State.modify' (\g -> g{player = (moveFrom, Digging dir 4 moveTo)})
         let willMove =
                 not needsToDig
                     && nextBlockType /= Stone
@@ -165,13 +180,29 @@ update :: (State.MonadIO m) => GameM ph m ()
 update = do
     updateMovingParts
     dropPlayerIfAir
-    updateDigRequest
+    updatePlayerState
 
-updateDigRequest :: GameM ph m ()
-updateDigRequest = do
+updatePlayerState :: forall m ph. GameM ph m ()
+updatePlayerState = do
     g@(Game (playerPos_, playerState) _ _) <- State.get
     case playerState of
-        Digging (DigRequest dir ticks nextPos) ->
+        Running dir nextPos ->
+            let canBreatheAtNext = canBreathe <$> blockTypeAt nextPos
+                stairsNeededAt = case dir of
+                    GoUp -> playerPos_
+                    GoDown -> nextPos
+                    _ -> error "Running implemented only for up/down."
+                canClimb = Stairs ==^ blockTypeAt stairsNeededAt
+             in ifM
+                    (canClimb ^&&^ canBreatheAtNext)
+                    ( nextPos .> dir >>= \case
+                        Just nextNextPos ->
+                            State.put $ g{player = (nextPos, Running dir nextNextPos)}
+                        Nothing ->
+                            State.put $ g{player = (nextPos, Standing)}
+                    )
+                    (State.put $ g{player = (playerPos_, Standing)})
+        (Digging dir ticks nextPos) ->
             case ticks of
                 0 -> do
                     write' nextPos Air
@@ -190,7 +221,7 @@ updateDigRequest = do
                     whenJustM (trackDug nextPos) (addToTracked 30)
                 _ ->
                     State.put $
-                        g{player = (playerPos_, Digging (DigRequest dir (ticks - 1) nextPos))}
+                        g{player = (playerPos_, Digging dir (ticks - 1) nextPos)}
         _ -> pure ()
 
 dropPlayerIfAir :: GameM ph m ()
@@ -206,10 +237,17 @@ dropPlayerIfAir =
     belowPlayerM :: GameM ph m (Maybe (Index ph))
     belowPlayerM = playerPos >>= (.> GoDown)
 
-    (^&&^) = liftM2 (&&)
+(^&&^) :: (Monad m) => m Bool -> m Bool -> m Bool
+(^&&^) = liftM2 (&&)
+
+(==^) :: (Monad m, Eq a) => a -> m a -> m Bool
+a ==^ ma = (a ==) <$> ma
 
 playerPos :: GameM ph m (Index ph)
 playerPos = State.gets $ \(Game (p, _) _ _) -> p
+
+playerState :: GameM ph m (PlayerState ph)
+playerState = State.gets $ \(Game (_, s) _ _) -> s
 
 isOnStairs :: GameM ph m Bool
 isOnStairs = fmap (Stairs ==) $ blockTypeAt =<< playerPos

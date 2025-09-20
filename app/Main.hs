@@ -12,7 +12,7 @@ import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
-import Game (Block (..), Dir (..), Game (..), PlayerState (Standing))
+import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
 import qualified Game
 import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
@@ -56,9 +56,11 @@ update ::
 update [] = Game.update >> pure Live
 update (KEsc : _) = pure Die
 update (KQ : _) = pure Die
-update (Save : _) = do
+update (KUpShift : events) = runPlayerUp GoUp >> update events
+update (KDownShift : events) = runPlayerUp GoDown >> update events
+update (Save : events) = do
     liftIO . writeFile storeFileName =<< lift . serialize =<< State.get
-    pure Live
+    update events
 update (e : events) = do
     mapM_ Game.movePlayer $ toMovement e
     update events
