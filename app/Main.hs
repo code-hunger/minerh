@@ -4,8 +4,9 @@ import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoa
 import Vty.Core (UserEvent (..), runVty)
 import Vty.Draw (draw)
 
-import Control.Monad.State (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
-import qualified Control.Monad.State as State (get, state)
+import qualified Control.Monad.State.Lazy as StateL (evalStateT)
+import Control.Monad.State.Strict (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
+import qualified Control.Monad.State.Strict as State (get, state)
 import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
@@ -30,11 +31,11 @@ main = do
     newGame = do
         array <- initBoard Dirt size
         withArray array $ \board -> do
-            () <- flip evalStateT (mkStdGen 42) $ do
+            () <- flip StateL.evalStateT (mkStdGen 42) $ do
                 nextBoard board weigh
                 nextBoard board weigh
                 nextBoard board weigh
-            Just startPos <- justify board $ Coord 23 0
+            Just startPos <- justify board $ Coord (cols size `div` 2) 0
             evalStateT (runVty f) $
                 Game (startPos, Standing) board []
     loadGame = do
@@ -66,7 +67,7 @@ update (e : events) = do
     update events
 
 size :: BoardSize
-size = BoardSize{cols = 50, rows = 90}
+size = BoardSize{cols = 30, rows = 20}
 
 boards :: [Array (Int, Int) Block]
 boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh

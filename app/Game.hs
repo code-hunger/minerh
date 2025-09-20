@@ -7,8 +7,8 @@ module Game where
 import Board (Board (Item, justify, (!)), Coord (..), Index (unIndex), MBoard (write))
 import BoardGen (mapMM_)
 import Control.Monad.Extra
-import Control.Monad.State (MonadTrans (lift), StateT)
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (MonadTrans (lift), StateT)
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Either (partitionEithers)
 import Data.Maybe (catMaybes, mapMaybe)
