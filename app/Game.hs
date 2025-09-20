@@ -144,8 +144,8 @@ movePlayer dir = do
         whenM needsStairs $
             write' moveFrom Stairs
         when willMove $ do
-            newFallState <- computeNewFallState moveTo
-            State.modify' (\g -> g{player = (moveTo, newFallState, Nothing)})
+            fallingState' <- computeNewFallState moveTo
+            State.modify' (\g -> g{player = (moveTo, fallingState', Nothing)})
 
 computeNewFallState :: Index ph -> GameM ph m PlayerFallingState
 computeNewFallState pos =
@@ -193,9 +193,9 @@ dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
     whenJustM belowPlayerM $ \belowPlayer ->
         whenM (isAir' belowPlayer) $ do
-            newFallState <- computeNewFallState belowPlayer
+            fallingState' <- computeNewFallState belowPlayer
             State.modify' $
-                \g -> g{player = (belowPlayer, newFallState, Nothing)}
+                \g -> g{player = (belowPlayer, fallingState', Nothing)}
   where
     isAir' = fmap (Air ==) . blockTypeAt
 
