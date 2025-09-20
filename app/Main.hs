@@ -66,7 +66,7 @@ weigh current neighbours =
             -- -> error "Can generate Dirt and Stone for now."
             switch Stone = Dirt
             switch Dirt = Stone
-            switch _ = Air -- error "Can generate Dirt and Stone for now."
+            switch _ = Fire -- error "Can generate Dirt and Stone for now."
             next = if r < threshold then switch current else current
          in pure $ if next == Stone && r * 3 < threshold then Fire else next
   where

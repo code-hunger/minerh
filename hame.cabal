@@ -68,7 +68,15 @@ executable hame
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.18, vty, vty-crossplatform, text, bytestring, mtl, random, array, stm, async, extra, transformers
+    build-depends:    base ^>=4.18
+                    , vty, vty-crossplatform
+                    , text, bytestring
+                    , mtl
+                    , transformers
+                    , array, stm
+                    , async
+                    , extra
+                    , random
 
     -- Directories containing source files.
     hs-source-dirs:   app

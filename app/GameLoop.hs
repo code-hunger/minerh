@@ -2,7 +2,7 @@
 
 module GameLoop (loop, EventOrTick (..), UpdateStatus (..)) where
 
-import Control.Monad (forever, when)
+import Control.Monad (forever)
 
 import qualified Control.Concurrent.Async as Async (async, cancel)
 import Control.Concurrent.STM (atomically, check, orElse, readTVar, registerDelay)
