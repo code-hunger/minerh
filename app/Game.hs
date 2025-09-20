@@ -162,7 +162,11 @@ movePlayer dir = do
             write' moveFrom Stairs
         when willMove $ do
             fallingState' <- computeNewFallState moveTo
-            State.modify' (\g -> g{player = (moveTo, fallingState')})
+            case (fallingState', dir) of
+                (Falling, GoDown) ->
+                    State.modify' (\g -> g{player = (moveFrom, fallingState')})
+                _ ->
+                    State.modify' (\g -> g{player = (moveTo, fallingState')})
 
 computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
 computeNewFallState pos =
@@ -222,6 +226,11 @@ updatePlayerState = do
                 _ ->
                     State.put $
                         g{player = (playerPos_, Digging dir (ticks - 1) nextPos)}
+        Falling -> whenJustM (playerPos_ .> GoDown) $ \nextPos ->
+            ifM
+                (canStepOn <$> blockTypeAt nextPos)
+                (State.put g{player = (playerPos_, Standing)})
+                (State.put g{player = (nextPos, Falling)})
         _ -> pure ()
 
 dropPlayerIfAir :: GameM ph m ()
@@ -299,6 +308,9 @@ updateMovingPart (tick, movingPart) =
 
 isGround :: Block -> Bool
 isGround t = t /= Air && t /= Stairs
+
+canStepOn :: Block -> Bool
+canStepOn t = t /= Air
 
 pullDownAt ::
     AdjacentPair ph ->
