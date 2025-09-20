@@ -27,8 +27,14 @@ type MovingPart ph =
     , AdjacentPair ph -- the bottom part of a collapsing column
     )
 
+data PlayerFallingState = Standing | Falling deriving (Eq)
+
 data Game board ph = Game
-    { player :: (Index ph, Maybe (DigRequest ph))
+    { player ::
+        ( Index ph
+        , PlayerFallingState
+        , Maybe (DigRequest ph)
+        )
     , board :: board
     , movingParts :: [MovingPart ph]
     }
@@ -36,7 +42,7 @@ data Game board ph = Game
 type GameM ph m a =
     forall board.
     ( MBoard board m
-    , State.MonadIO m
+    , State.MonadIO m -- we just use this for logging
     , MonadFail m
     , Item board ~ Block
     ) =>
@@ -110,21 +116,23 @@ moveP ::
 
 movePlayer :: Dir -> GameM ph m ()
 movePlayer dir = do
-    (Game (playerPos, digRequest) _ _) <- State.get
+    (Game (playerPos, fallingState, digRequest) _ _) <- State.get
     let alreadyWantsToDigThere =
             -- if there's alread a dig request registered in that direction,
             -- we want to ignore it
             maybe False (\(DigRequest requestDir _ _) -> requestDir == dir) digRequest
 
-    whenJustM (playerPos `move` dir) $
-        unless alreadyWantsToDigThere
-            . doMove
+    when (fallingState == Standing) $
+        whenJustM (playerPos `move` dir) $
+            unless alreadyWantsToDigThere
+                . doMove
   where
+    doMove :: AdjacentPair ph -> GameM ph m ()
     doMove (moveFrom, moveTo) = do
         nextBlockType <- blockTypeAt moveTo
         let needsToDig = nextBlockType == Dirt
         when needsToDig $
-            State.modify' (\g -> g{player = (moveFrom, Just $ DigRequest dir 4 moveTo)})
+            State.modify' (\g -> g{player = (moveFrom, Standing, Just $ DigRequest dir 4 moveTo)})
         let willMove =
                 not needsToDig
                     && nextBlockType /= Stone
@@ -135,8 +143,19 @@ movePlayer dir = do
 
         whenM needsStairs $
             write' moveFrom Stairs
-        when willMove $
-            State.modify' (\g -> g{player = (moveTo, Nothing)})
+        when willMove $ do
+            newFallState <- computeNewFallState moveTo
+            State.modify' (\g -> g{player = (moveTo, newFallState, Nothing)})
+
+computeNewFallState :: Index ph -> GameM ph m PlayerFallingState
+computeNewFallState pos =
+    pos .> GoDown >>= \case
+        Nothing -> error "Fell into the abyss!"
+        Just belowNext ->
+            ifM
+                ((Air ==) <$> blockTypeAt belowNext)
+                (pure Falling)
+                (pure Standing)
 
 update :: (State.MonadIO m) => GameM ph m ()
 update = do
@@ -146,17 +165,21 @@ update = do
 
 updateDigRequest :: GameM ph m ()
 updateDigRequest = do
-    g@(Game (playerPos, digRequest) _ _) <- State.get
+    g@(Game (playerPos, fallingState, digRequest) _ _) <- State.get
     whenJust digRequest $ \(DigRequest dir ticks nextPos) ->
         case ticks of
             0 -> do
                 write' nextPos Air
+                fallingState' <- computeNewFallState nextPos
                 State.put $
                     g
                         { player =
                             -- if we dug up, we stay here; if we dug down - we'll fall anyway,
                             -- so we only need to care for left and right
-                            ( if dir == GoLeft || dir == GoRight then nextPos else playerPos
+                            ( if dir == GoLeft || dir == GoRight
+                                then nextPos
+                                else playerPos
+                            , fallingState'
                             , -- dig request evaluated, reset it!
                               Nothing
                             )
@@ -164,19 +187,20 @@ updateDigRequest = do
                 whenJustM (trackDug nextPos) (addToTracked 30)
             _ ->
                 State.put $
-                    g{player = (playerPos, Just (DigRequest dir (ticks - 1) nextPos))}
+                    g{player = (playerPos, fallingState, Just (DigRequest dir (ticks - 1) nextPos))}
 
 dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
     whenJustM belowPlayerM $ \belowPlayer ->
-        whenM (isAir' belowPlayer) $
+        whenM (isAir' belowPlayer) $ do
+            newFallState <- computeNewFallState belowPlayer
             State.modify' $
-                \g -> g{player = (belowPlayer, Nothing)}
+                \g -> g{player = (belowPlayer, newFallState, Nothing)}
   where
     isAir' = fmap (Air ==) . blockTypeAt
 
     belowPlayerM :: GameM ph m (Maybe (Index ph))
-    belowPlayerM = State.get >>= \(Game (playerPos, _) _ _) -> playerPos .> GoDown
+    belowPlayerM = State.get >>= \(Game (playerPos, _, _) _ _) -> playerPos .> GoDown
 
 updateMovingParts :: (State.MonadIO m) => GameM ph m ()
 updateMovingParts = do

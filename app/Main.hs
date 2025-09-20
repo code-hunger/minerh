@@ -12,7 +12,7 @@ import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
-import Game (Block (..), Dir (..), Game (..))
+import Game (Block (..), Dir (..), Game (..), PlayerFallingState (..))
 import qualified Game
 import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
@@ -27,7 +27,7 @@ main = do
             nextBoard board weigh
         Just startPos <- justify board $ Coord 23 0
         evalStateT (runVty f) $
-            Game (startPos, Nothing) board []
+            Game (startPos, Standing, Nothing) board []
   where
     f render =
         let draw' Die = pure Die
