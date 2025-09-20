@@ -222,7 +222,7 @@ updatePlayerState = do
                                 , fallingState'
                                 )
                             }
-                    whenJustM (trackDug nextPos) (addToTracked 30)
+                    whenJustM (trackDug nextPos) (addToTracked 60)
                 _ ->
                     State.put $
                         g{player = (playerPos_, Digging dir (ticks - 1) nextPos)}
@@ -324,7 +324,7 @@ pullDownAt i = go i >> hitTheGround
                 ifM
                     (isGround <$> blockTypeAt belowBelow)
                     (pure $ HitGround pair)
-                    (pure $ StillFlying{nextPosition = (5, pair)})
+                    (pure $ StillFlying{nextPosition = (10, pair)})
     go pair@(below, above) = do
         whenM (canFall <$> blockTypeAt above) $ do
             blockType <- blockTypeAt above
