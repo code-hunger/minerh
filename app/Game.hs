@@ -11,14 +11,13 @@ import Control.Monad.State (MonadTrans (lift), StateT)
 import qualified Control.Monad.State as State
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Either (partitionEithers)
-import Data.Functor ((<&>))
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Traversable (for)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
 
-data DigRequest ph = DigRequest Dir Int (Index ph)
+data DigRequest ph = DigRequest Dir Int (Index ph) deriving (Show, Read)
 
 type AdjacentPair ph = (Index ph, Index ph)
 
@@ -27,14 +26,14 @@ type MovingPart ph =
     , AdjacentPair ph -- the bottom part of a collapsing column
     )
 
-data PlayerFallingState = Standing | Falling deriving (Eq, Show, Read)
+data PlayerState ph
+    = Standing
+    | Digging (DigRequest ph)
+    | Falling
+    deriving (Show, Read)
 
 data Game board ph = Game
-    { player ::
-        ( Index ph
-        , PlayerFallingState
-        , Maybe (DigRequest ph)
-        )
+    { player :: (Index ph, PlayerState ph)
     , board :: board
     , movingParts :: [MovingPart ph]
     }
@@ -116,13 +115,16 @@ moveP ::
 
 movePlayer :: Dir -> GameM ph m ()
 movePlayer dir = do
-    (Game (playerPos, fallingState, digRequest) _ _) <- State.get
+    (Game (playerPos, playerState) _ _) <- State.get
     let alreadyWantsToDigThere =
             -- if there's alread a dig request registered in that direction,
             -- we want to ignore it
-            maybe False (\(DigRequest requestDir _ _) -> requestDir == dir) digRequest
+            case playerState of
+                Digging (DigRequest requestDir _ _) -> requestDir == dir
+                _ -> False
+        isFalling = case playerState of Falling -> True; _ -> False
 
-    when (fallingState == Standing) $
+    unless isFalling $
         whenJustM (playerPos `move` dir) $
             unless alreadyWantsToDigThere
                 . doMove
@@ -132,7 +134,7 @@ movePlayer dir = do
         nextBlockType <- blockTypeAt moveTo
         let needsToDig = nextBlockType == Dirt
         when needsToDig $
-            State.modify' (\g -> g{player = (moveFrom, Standing, Just $ DigRequest dir 4 moveTo)})
+            State.modify' (\g -> g{player = (moveFrom, Digging $ DigRequest dir 4 moveTo)})
         let willMove =
                 not needsToDig
                     && nextBlockType /= Stone
@@ -145,9 +147,9 @@ movePlayer dir = do
             write' moveFrom Stairs
         when willMove $ do
             fallingState' <- computeNewFallState moveTo
-            State.modify' (\g -> g{player = (moveTo, fallingState', Nothing)})
+            State.modify' (\g -> g{player = (moveTo, fallingState')})
 
-computeNewFallState :: Index ph -> GameM ph m PlayerFallingState
+computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
 computeNewFallState pos =
     ifM ((Stairs ==) <$> blockTypeAt pos) (pure Standing) $
         -- if we won't step on stairs (which are safe), we have to check what's below
@@ -167,29 +169,29 @@ update = do
 
 updateDigRequest :: GameM ph m ()
 updateDigRequest = do
-    g@(Game (playerPos_, fallingState, digRequest) _ _) <- State.get
-    whenJust digRequest $ \(DigRequest dir ticks nextPos) ->
-        case ticks of
-            0 -> do
-                write' nextPos Air
-                fallingState' <- computeNewFallState nextPos
-                State.put $
-                    g
-                        { player =
-                            -- if we dug up, we stay here; if we dug down - we'll fall anyway,
-                            -- so we only need to care for left and right
-                            ( if dir == GoLeft || dir == GoRight
-                                then nextPos
-                                else playerPos_
-                            , fallingState'
-                            , -- dig request evaluated, reset it!
-                              Nothing
-                            )
-                        }
-                whenJustM (trackDug nextPos) (addToTracked 30)
-            _ ->
-                State.put $
-                    g{player = (playerPos_, fallingState, Just (DigRequest dir (ticks - 1) nextPos))}
+    g@(Game (playerPos_, playerState) _ _) <- State.get
+    case playerState of
+        Digging (DigRequest dir ticks nextPos) ->
+            case ticks of
+                0 -> do
+                    write' nextPos Air
+                    fallingState' <- computeNewFallState nextPos
+                    State.put $
+                        g
+                            { player =
+                                -- if we dug up, we stay here; if we dug down - we'll fall anyway,
+                                -- so we only need to care for left and right
+                                ( if dir == GoLeft || dir == GoRight
+                                    then nextPos
+                                    else playerPos_
+                                , fallingState'
+                                )
+                            }
+                    whenJustM (trackDug nextPos) (addToTracked 30)
+                _ ->
+                    State.put $
+                        g{player = (playerPos_, Digging (DigRequest dir (ticks - 1) nextPos))}
+        _ -> pure ()
 
 dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
@@ -197,7 +199,7 @@ dropPlayerIfAir =
         whenM (isAir' belowPlayer ^&&^ (not <$> isOnStairs)) $ do
             fallingState' <- computeNewFallState belowPlayer
             State.modify' $
-                \g -> g{player = (belowPlayer, fallingState', Nothing)}
+                \g -> g{player = (belowPlayer, fallingState')}
   where
     isAir' = fmap (Air ==) . blockTypeAt
 
@@ -207,7 +209,7 @@ dropPlayerIfAir =
     (^&&^) = liftM2 (&&)
 
 playerPos :: GameM ph m (Index ph)
-playerPos = State.get <&> \(Game (playerPos, _, _) _ _) -> playerPos
+playerPos = State.gets $ \(Game (p, _) _ _) -> p
 
 isOnStairs :: GameM ph m Bool
 isOnStairs = fmap (Stairs ==) $ blockTypeAt =<< playerPos
@@ -322,7 +324,7 @@ ifJustM f (Just a) = f a
 ifJustM _ Nothing = pure mempty
 
 data Dir = GoLeft | GoRight | GoUp | GoDown
-    deriving (Eq, Show)
+    deriving (Eq, Show, Read)
 
 movePos' :: Coord -> Dir -> Coord
 movePos' c GoLeft = Coord (x c - 1) (y c)

@@ -12,7 +12,7 @@ import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
-import Game (Block (..), Dir (..), Game (..), PlayerFallingState (..))
+import Game (Block (..), Dir (..), Game (..), PlayerState (Standing))
 import qualified Game
 import GameLoop (UpdateStatus (..))
 import qualified GameLoop as Game (loop)
@@ -36,7 +36,7 @@ main = do
                 nextBoard board weigh
             Just startPos <- justify board $ Coord 23 0
             evalStateT (runVty f) $
-                Game (startPos, Standing, Nothing) board []
+                Game (startPos, Standing) board []
     loadGame = do
         gameData <- readFile storeFileName
         deserialize gameData $ evalStateT (runVty f)

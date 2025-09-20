@@ -10,14 +10,14 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Game (Block (..), DigRequest (DigRequest), Game (Game, movingParts))
+import Game (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
 boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
-boardToImage (Game (unIndex -> player, fallingState, digRequest) board movingParts) =
+boardToImage (Game (unIndex -> player, playerState) board movingParts) =
     (stats <>) . linesToPicture <$> Board.lines board
   where
     linesToPicture = mconcat . fmap printLine . indexed
@@ -38,8 +38,7 @@ boardToImage (Game (unIndex -> player, fallingState, digRequest) board movingPar
             "Stats: moving parts ("
                 ++ show (length movingParts)
                 ++ "), player is "
-                ++ show fallingState
-                ++ maybe "" (\(DigRequest dir _ _) -> " digging " ++ show dir) digRequest
+                ++ show playerState
 
     attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
     attr Stone = Vty.defAttr `Vty.withForeColor` Vty.linearColor @Int 150 150 150
