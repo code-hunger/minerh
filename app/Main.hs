@@ -47,7 +47,7 @@ main = do
             draw' Live = do
                 state <- State.get
                 picture <- liftIO $ draw state
-                () <- liftIO $ render picture
+                liftIO @_ @() $ render picture
                 pure Live
          in Game.loop (draw' <=< update)
 
