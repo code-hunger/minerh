@@ -1,7 +1,7 @@
 module Main where
 
 import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
-import Vty.Core (UserEvent (..), runVty)
+import Vty.Core (Renderer (..), UserEvent (..), runVty)
 import Vty.Draw (draw)
 
 import qualified Control.Monad.State.Lazy as StateL (evalStateT)
@@ -15,7 +15,7 @@ import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
 import qualified Game
-import GameLoop (UpdateStatus (..))
+import GameLoop (EventEmitter (..), UpdateHandler (..), UpdateStatus (..))
 import qualified GameLoop as Game (loop)
 import Store (deserialize, serialize)
 import System.Directory.Extra (doesFileExist)
@@ -42,14 +42,14 @@ main = do
         gameData <- readFile storeFileName
         deserialize gameData $ evalStateT (runVty f)
 
-    f render =
+    f (Renderer render) emitEvent =
         let draw' Die = pure Die
             draw' Live = do
                 state <- State.get
                 picture <- liftIO $ draw state
                 liftIO @_ @() $ render picture
                 pure Live
-         in Game.loop (draw' <=< update)
+         in Game.loop (UpdateHandler (draw' <=< update)) (EventEmitter emitEvent)
 
 update ::
     [UserEvent] ->

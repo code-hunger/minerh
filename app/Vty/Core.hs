@@ -1,4 +1,4 @@
-module Vty.Core (runVty, UserEvent (..)) where
+module Vty.Core (runVty, UserEvent (..), Renderer (..)) where
 
 import qualified Graphics.Vty as Vty
 import Graphics.Vty.CrossPlatform (mkVty)
@@ -6,17 +6,19 @@ import Graphics.Vty.CrossPlatform (mkVty)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Graphics.Vty.Input.Events (Event (EvKey))
 
+newtype Renderer = Renderer (Vty.Picture -> IO ())
+
 runVty ::
     forall m.
     (MonadIO m) =>
-    ((Vty.Picture -> IO ()) -> IO UserEvent -> m ()) ->
+    (Renderer -> IO UserEvent -> m ()) ->
     m ()
 runVty f = do
     vty <- liftIO $ mkVty Vty.defaultConfig
 
     liftIO $ Vty.setWindowTitle vty "Miner V"
 
-    f (Vty.update vty) (liftIO $ toUserEvent <$> Vty.nextEvent vty)
+    f (Renderer $ Vty.update vty) (liftIO $ toUserEvent <$> Vty.nextEvent vty)
 
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
