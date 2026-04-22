@@ -15,6 +15,7 @@ import Board (ArrayS, Board (justify), Coord (..), withArray)
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
 import qualified Game
+import qualified Game.Update
 import GameLoop (EventEmitter (..), UpdateHandler (..), UpdateStatus (..))
 import qualified GameLoop as Game (loop)
 import Store (deserialize, serialize)
@@ -54,7 +55,7 @@ main = do
 update ::
     [UserEvent] ->
     StateT (Game (ArrayS (IOArray (Int, Int) Block) ph) ph) IO UpdateStatus
-update [] = Game.update >> pure Live
+update [] = Game.Update.update >> pure Live
 update (KEsc : _) = pure Die
 update (KQ : _) = pure Die
 update (KUpShift : events) = runPlayerUp GoUp >> update events
