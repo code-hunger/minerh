@@ -59,6 +59,8 @@ playerPos = State.gets $ \(Game (p, _) _ _) -> p
 canBreathe :: Block -> Bool
 canBreathe blockType = blockType == Air || blockType == Stairs
 
+canBreatheAt i = canBreathe <$> blockTypeAt i
+
 blockTypeAt ::
     Index ph ->
     GameM ph m Block
@@ -71,6 +73,7 @@ neighbours (unIndex -> i) =
         $ [Coord x' y' | x' <- [x i - 1 .. x i + 1], y' <- [y i - 1 .. y i + 1]]
 
 -- Allow for uniform treatment of Indices and AdjacentPairs
+-- A lawful instance gives a invertible semigroup action of Dir.
 class Spatial a ph where
     (.>) :: a -> Dir -> GameM ph m (Maybe a)
 
@@ -90,11 +93,31 @@ instance Spatial (AdjacentPair ph) ph where
             j' <- MaybeT $ j .> dir
             pure (i', j')
 
-isAir :: Index ph -> GameM ph m Bool
-isAir = (Air ==^) . blockTypeAt
+mi ^> dir = mi >>= \i -> i .> dir
 
-canFall :: Block -> Bool
-canFall blockType = blockType == Stone || blockType == Fire
+class BlockType a where
+    (.~) :: Index ph -> a -> GameM ph m Bool
+
+i !~ t = fmap not $ i .~ t
+
+instance BlockType Block where
+    i .~ t = t ==^ blockTypeAt i
+
+data Ground = Ground
+data Heavy = Heavy
+
+instance BlockType Ground where
+    i .~ Ground = do
+        t <- blockTypeAt i
+        return $ t /= Air && t /= Stairs
+
+instance BlockType Heavy where
+    i .~ Heavy = do
+        t <- blockTypeAt i
+        return $ t == Stone || t == Fire
+
+(^~) :: (BlockType a) => GameM ph m (Index ph) -> a -> GameM ph m Bool
+mi ^~ t = mi >>= \i -> i .~ t
 
 (^&&^) :: (Monad m) => m Bool -> m Bool -> m Bool
 (^&&^) = liftM2 (&&)
