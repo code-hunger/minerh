@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -68,30 +70,25 @@ neighbours (unIndex -> i) =
         . mapM justify'
         $ [Coord x' y' | x' <- [x i - 1 .. x i + 1], y' <- [y i - 1 .. y i + 1]]
 
-(.>) ::
-    Index ph ->
-    Dir ->
-    GameM ph m (Maybe (Index ph))
-i .> dir = justify' (movePos' (unIndex i) dir)
+-- Allow for uniform treatment of Indices and AdjacentPairs
+class Spatial a ph where
+    (.>) :: a -> Dir -> GameM ph m (Maybe a)
 
-moveUp' :: Coord -> Coord
-moveUp' = (`movePos'` GoUp)
+instance Spatial (Index ph) ph where
+    i .> dir = justify' (movePos' (unIndex i) dir)
+      where
+        movePos' :: Coord -> Dir -> Coord
+        movePos' c GoLeft = Coord (x c - 1) (y c)
+        movePos' c GoRight = Coord (x c + 1) (y c)
+        movePos' c GoUp = Coord (x c) (y c - 1)
+        movePos' c GoDown = Coord (x c) (y c + 1)
 
-moveP ::
-    AdjacentPair ph ->
-    Dir ->
-    GameM ph m (Maybe (AdjacentPair ph))
-(i, j) `moveP` dir = do
-    runMaybeT $ do
-        i' <- MaybeT $ i .> dir
-        j' <- MaybeT $ j .> dir
-        pure (i', j')
-
-movePos' :: Coord -> Dir -> Coord
-movePos' c GoLeft = Coord (x c - 1) (y c)
-movePos' c GoRight = Coord (x c + 1) (y c)
-movePos' c GoUp = Coord (x c) (y c - 1)
-movePos' c GoDown = Coord (x c) (y c + 1)
+instance Spatial (AdjacentPair ph) ph where
+    (i, j) .> dir =
+        runMaybeT $ do
+            i' <- MaybeT $ i .> dir
+            j' <- MaybeT $ j .> dir
+            pure (i', j')
 
 isAir :: Index ph -> GameM ph m Bool
 isAir = (Air ==^) . blockTypeAt

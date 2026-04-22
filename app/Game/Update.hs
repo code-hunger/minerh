@@ -1,3 +1,6 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+
 module Game.Update (update, write', computeNewFallState) where
 
 import Control.Monad.State.Strict (MonadTrans (lift), StateT)
@@ -134,19 +137,21 @@ pullDownAt ::
 pullDownAt i = go i >> hitTheGround
   where
     hitTheGround =
-        i `moveP` GoDown >>= \case
+        i .> GoDown >>= \case
             Nothing -> pure OutOfBoard
             Just pair@(belowBelow, _) ->
                 ifM
                     (isGround <$> blockTypeAt belowBelow)
                     (pure $ HitGround pair)
                     (pure $ StillFlying{nextPosition = (10, pair)})
+    go :: AdjacentPair ph -> GameM ph m ()
     go pair@(below, above) = do
         whenM (canFall <$> blockTypeAt above) $ do
             blockType <- blockTypeAt above
             write' above Air
             write' below blockType
-            pair `moveP` GoUp >>= ifJustM go
+            nextPair <- pair .> GoUp
+            whenJust nextPair go
 
 write' ::
     Index ph ->
@@ -205,17 +210,10 @@ findExplosives (below, above) =
         ((below :) <$> searchAbove above)
         (searchAbove above)
   where
+    searchAbove :: Index ph -> GameM ph m [Index ph]
     searchAbove i =
-        let rest = i .> GoUp >>= ifJustM searchAbove
+        let rest = (i .> GoUp) >>= maybe (pure []) searchAbove
          in blockTypeAt i >>= \case
                 Fire -> (i :) <$> rest
                 Stone -> rest
                 _ -> pure []
-ifJustM ::
-    forall a f t.
-    (Applicative f, Monoid a) =>
-    (t -> f a) ->
-    Maybe t ->
-    f a
-ifJustM f (Just a) = f a
-ifJustM _ Nothing = pure mempty
