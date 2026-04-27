@@ -79,11 +79,17 @@ updatePlayerState = do
                 _ ->
                     State.put $
                         g{player = (playerPos_, Digging dir (ticks - 1) nextPos)}
-        Falling -> whenJustM (playerPos_ .> GoDown) $ \nextPos ->
-            ifM
-                (nextPos !~ Air)
-                (State.put g{player = (playerPos_, Standing)})
-                (State.put g{player = (nextPos, Falling)})
+        Falling ->
+            playerPos_ .> GoDown >>= \case
+                Just nextPos ->
+                    ifM
+                        (nextPos !~ Air)
+                        (State.put g{player = (playerPos_, Standing)})
+                        (State.put g{player = (nextPos, Falling)})
+                Nothing ->
+                    do
+                        logInfo "Was falling, but hit the ground\n"
+                        State.put g{player = (playerPos_, Standing)}
         _ -> pure ()
 
 computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
