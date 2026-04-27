@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -17,16 +18,18 @@ import qualified Graphics.Vty as Vty
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
-boardToImage :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
+boardToImage :: forall board m ph. (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
 boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
     (min 50 -> width) <- getWidth board
     (stats <>) . addHorizontalBorders width <$> image width
   where
     image width = mconcatMap (addVerticalBorders . printLine) . indexed yStartFrom <$> sliceImage width
 
-    sliceImage size =
-        let rowsToDraw = [yStartFrom .. yStartFrom + size]
-         in mapM (sliceRow board size . Coord xStartFrom) rowsToDraw
+    sliceImage :: Int -> m [[Block]]
+    sliceImage width =
+        let rowsToDraw = [yStartFrom .. yStartFrom + width]
+            rowStarts = Coord xStartFrom <$> rowsToDraw
+         in mapM (sliceRow board width) rowStarts
 
     yStartFrom = (y playerPos - 25) `max` 0
     xStartFrom = (x playerPos - 25) `max` 0
