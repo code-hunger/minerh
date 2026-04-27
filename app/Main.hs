@@ -11,7 +11,7 @@ import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import Board (ArrayS, Board (justify), Coord (..), withArray)
+import Board (Board (justify), Coord (..), WithPass, withPass)
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
 import qualified Game
@@ -31,7 +31,7 @@ main = do
   where
     newGame = do
         array <- initBoard Dirt size
-        withArray array $ \board -> do
+        withPass array $ \board -> do
             () <- flip StateL.evalStateT (mkStdGen 42) $ do
                 nextBoard board weigh
                 nextBoard board weigh
@@ -54,7 +54,7 @@ main = do
 
 update ::
     [UserEvent] ->
-    StateT (Game (ArrayS (IOArray (Int, Int) Block) ph) ph) IO UpdateStatus
+    StateT (Game (WithPass (IOArray (Int, Int) Block) ph) ph) IO UpdateStatus
 update [] = Game.Update.update >> pure Live
 update (KEsc : _) = pure Die
 update (KQ : _) = pure Die

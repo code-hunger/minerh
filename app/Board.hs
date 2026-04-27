@@ -5,12 +5,23 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withArray, unArrayS, ArrayS) where
+module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withPass, unArrayS, WithPass) where
 
 import Control.Monad.Extra (mapMaybeM)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
+
+-- Adds a pass to a type `a`. The pass is in the form of a type parameter which is used to track
+-- type-safe indexing. This module exports only the type constructor, but not the data constructor.
+--
+-- That is, users can operate with an existing `WithPass a ph`, but cannot construct one, i.e. they
+-- cannot construct the password.
+newtype WithPass a ph = WithPass {unArrayS :: a}
+
+-- Provides a pass to the given function, which it can use for type-safe operations on the given `a`.
+withPass :: a -> (forall ph. WithPass a ph -> t) -> t
+withPass a f = f (WithPass a)
 
 data Coord = Coord {x :: Int, y :: Int} deriving (Show, Read, Eq)
 
@@ -70,13 +81,8 @@ class (Monad m) => Board board m where
 class (Board board m) => MBoard board m where
     write :: board ph -> Index ph -> Item board -> m ()
 
-newtype ArrayS a ph = ArrayS {unArrayS :: a}
-
-withArray :: a -> (forall ph. ArrayS a ph -> t) -> t
-withArray a f = f (ArrayS a)
-
-instance (MArray arr el m) => Board (ArrayS (arr (Int, Int) el)) m where
-    type Item (ArrayS (arr (Int, Int) el)) = el
+instance (MArray arr el m) => Board (WithPass (arr (Int, Int) el)) m where
+    type Item (WithPass (arr (Int, Int) el)) = el
 
     array ! (Index i) = readArray (unArrayS array) (y i, x i)
 
@@ -94,5 +100,5 @@ instance (MArray arr el m) => Board (ArrayS (arr (Int, Int) el)) m where
         toCoordPair :: ((Int, Int), (Int, Int)) -> (Coord, Coord)
         toCoordPair = bimap toCoord toCoord
 
-instance (MArray arr el m) => MBoard (ArrayS (arr (Int, Int) el)) m where
+instance (MArray arr el m) => MBoard (WithPass (arr (Int, Int) el)) m where
     write array (Index i) = writeArray (unArrayS array) (y i, x i)

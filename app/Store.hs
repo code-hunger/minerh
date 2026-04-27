@@ -2,7 +2,7 @@
 
 module Store (serialize, deserialize) where
 
-import Board (ArrayS, Board (Item, bounds, lines), Coord (..), withArray)
+import Board (Board (Item, bounds, lines), Coord (..), WithPass, withPass)
 import BoardGen (BoardSize (..), loadBoard)
 import Data.Array.Base (MArray)
 import Data.Char (ord)
@@ -27,7 +27,7 @@ serialize (Game (pos, playerState) board _) = do
 deserialize ::
     (MArray a Block m) =>
     String ->
-    (forall ph. Game (ArrayS (a (Int, Int) Block) ph) ph -> m r) ->
+    (forall ph. Game (WithPass (a (Int, Int) Block) ph) ph -> m r) ->
     m r
 deserialize string f = do
     let ( pos
@@ -36,7 +36,7 @@ deserialize string f = do
                 : boardData
             ) = Prelude.lines string
     array <- loadBoard (readBlock <$> concat boardData) (read size)
-    withArray array $ \board ->
+    withPass array $ \board ->
         f $
             Game
                 { player =

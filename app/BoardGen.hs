@@ -8,7 +8,7 @@ import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray, newListArray)
 
-import Board (Board (..), Coord (Coord), Index (unIndex), MBoard (..), withArray)
+import Board (Board (..), Coord (Coord), Index (unIndex), MBoard (..), withPass)
 import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
 import Data.Foldable (traverse_)
 import Data.Maybe (catMaybes)
@@ -27,15 +27,23 @@ makePureBoards ::
     (forall m. CellUpdater m g b) ->
     [Array (Int, Int) b]
 makePureBoards size g def weigh = runST $ do
+    -- a mutable board
     board <-
         initBoard def size ::
             -- type annotation is required here because initBoard is too general and GHC does not
             -- know to instantiate the same `s` variable on both positions here.
             (forall s. ST s (STArray s (Int, Int) b))
-    withArray board $ \b ->
+
+    -- get a type-safe indexing pass for the mutable board
+    withPass board $ \b ->
         let go = do
+                -- We will return a copy of the current mutable board,
+                -- so we need to freeze a copy
                 a <- freeze board
+                -- Then we update the board with the `nextBoard`,
+                -- i.e. we run one epoch of the automata
                 _ <- execStateT (nextBoard b weigh) g
+                --
                 rest <- unsafeInterleaveST go
                 pure (a : rest)
          in go
