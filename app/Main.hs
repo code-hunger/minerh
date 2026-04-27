@@ -1,6 +1,7 @@
 module Main where
 
-import BoardGen (BoardSize (..), CellUpdater, initBoard, makePureBoards, nextBoard)
+import Board (Board (justify), BoardSize (..), Coord (..), WithPass, withPass)
+import BoardGen (CellUpdater, initBoard, makePureBoards, nextBoard)
 import Vty.Core (Renderer (..), UserEvent (..), runVty)
 import Vty.Draw (draw)
 
@@ -11,7 +12,6 @@ import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import Board (Board (justify), Coord (..), WithPass, withPass)
 import Control.Monad
 import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
 import qualified Game

@@ -8,15 +8,13 @@ import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray, newListArray)
 
-import Board (Board (..), Coord (Coord), Index (unIndex), MBoard (..), withPass)
+import Board (Board (..), BoardSize (cols, rows), Coord (Coord), Index (unIndex), MBoard (..), withPass)
 import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
 import Data.Foldable (traverse_)
 import Data.Maybe (catMaybes)
 import System.Random (RandomGen)
 
 type CellUpdater m s el = (Monad m) => (el -> [el] -> StateT s m el)
-
-data BoardSize = BoardSize {rows :: Int, cols :: Int} deriving (Read, Show)
 
 makePureBoards ::
     forall g b.

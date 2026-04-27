@@ -4,35 +4,48 @@
 
 module Vty.Draw where
 
-import Board (Board (Item, getWidth, safeAt), Coord (..), Index (unIndex))
+import Board (Board (Item, getSize, justify, safeAt, (!)), BoardSize, Coord (..), Index (unIndex))
+import qualified Board (BoardSize (..))
 import qualified Data.ByteString as BS
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
 import Control.Monad.Extra (mapMaybeM)
 import Data.List.Extra (mconcatMap)
-import Game (Block (..), Game (Game))
+import Game.Core (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
+data BoardSlice = BoardSlice {rows :: Int, cols :: Int, startX :: Int, startY :: Int}
+
 boardToImage :: forall board m ph. (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
 boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
-    (min 50 -> width) <- getWidth board
-    (stats <>) . addHorizontalBorders width <$> image width
+    slice <- makeSlice <$> getSize board
+    (stats <>) . addHorizontalBorders slice <$> image slice
   where
-    image width = mconcatMap (addVerticalBorders . printLine) . indexed yStartFrom <$> sliceImage width
+    makeSlice size =
+        BoardSlice
+            { rows = Board.rows size `min` 50
+            , cols = Board.cols size `min` 50
+            , startX = ((x playerPos - 25) `min` (Board.cols size - 50)) `max` 0
+            , startY = ((y playerPos - 25) `min` (Board.rows size - 50)) `max` 0
+            }
 
-    sliceImage :: Int -> m [[Block]]
-    sliceImage width =
-        let rowsToDraw = [yStartFrom .. yStartFrom + width]
-            rowStarts = Coord xStartFrom <$> rowsToDraw
-         in mapM (sliceRow board width) rowStarts
+    image slice =
+        let enumerateRows = indexed (startY slice)
+         in mconcatMap (addVerticalBorders . printLine slice) . enumerateRows <$> sliceImage slice
 
-    yStartFrom = (y playerPos - 25) `max` 0
-    xStartFrom = (x playerPos - 25) `max` 0
+    sliceImage :: BoardSlice -> m [[Block]]
+    sliceImage slice =
+        let visibleRows =
+                [ startY slice + i
+                | i <- [0 .. rows slice - 1]
+                ]
+         in mapM (sliceRow board slice) visibleRows
 
     stats =
         Vty.string Vty.defAttr $
@@ -41,20 +54,29 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
                 ++ "), player is "
                 ++ show playerState
 
-    printLine (row, xs) =
+    printLine slice (row, xs) =
         let toPic (col, block) =
                 if playerPos == Coord col row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
-         in Vty.horizCat (toPic <$> indexed xStartFrom xs)
+         in Vty.horizCat (toPic <$> indexed (startX slice) xs)
 
-sliceRow :: (Board board m) => board ph -> Int -> Coord -> m [Item board]
-sliceRow board count startFrom = mapMaybeM (Board.safeAt board) wantedCoords
+sliceRow :: forall m board ph. (Board board m) => board ph -> BoardSlice -> Int -> m [Item board]
+sliceRow board slice row = mapM forceRead wantedCoords
   where
     wantedCoords =
-        [ Coord x' (y startFrom)
-        | x' <- [x startFrom .. x startFrom + count - 1]
+        [ Coord (startX slice + i) row
+        | i <- [0 .. cols slice - 1]
         ]
+    forceRead :: Coord -> m (Item board)
+    forceRead k =
+        -- As of now, we can't convince the type system that our coordinates are valid,
+        -- so we have to use fromJust. I leave a message just in case.
+        -- A more 'proper' solution would be to export richer functions from the Board module, which
+        -- provide more justified indices, e.g. a function that returns an already justified view
+        -- around a justified index.
+        fromMaybe (error "Board index out of bounds during rendering")
+            <$> Board.safeAt board k
 
 attr :: Block -> Vty.Attr
 attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53
@@ -68,8 +90,8 @@ indexed startFrom = zip [startFrom ..]
 stringToUtf8 :: String -> [Word8]
 stringToUtf8 = BS.unpack . TE.encodeUtf8 . T.pack
 
-addHorizontalBorders :: Int -> Vty.Image -> Vty.Image
-addHorizontalBorders width pic = topBorder <> pic <> bottomBorder
+addHorizontalBorders :: BoardSlice -> Vty.Image -> Vty.Image
+addHorizontalBorders (cols -> width) pic = topBorder <> pic <> bottomBorder
   where
     topBorder = Vty.string Vty.defAttr $ "┌" ++ (concat . replicate width $ horizontalBorderChar) ++ "┐"
     bottomBorder = Vty.string Vty.defAttr $ "└" ++ (concat . replicate width $ horizontalBorderChar) ++ "┘"

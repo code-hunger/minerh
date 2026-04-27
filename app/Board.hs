@@ -4,8 +4,9 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
-module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withPass, unArrayS, WithPass) where
+module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withPass, unArrayS, WithPass, BoardSize (..)) where
 
 import Control.Monad.Extra (mapMaybeM)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
@@ -40,6 +41,8 @@ inRange' i bb = fromCoordPair bb `inRange` fromCoord i
 newtype Index b = Index {unIndex :: Coord} -- do NOT export constructor
     deriving newtype (Show, Read)
 
+data BoardSize = BoardSize {rows :: Int, cols :: Int} deriving (Read, Show)
+
 -- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
 class (Monad m) => Board board m where
     type Item board :: Type
@@ -52,10 +55,10 @@ class (Monad m) => Board board m where
       where
         mapMM f mta = mapM f =<< mta
 
-    getWidth :: board ph -> m Int
-    getWidth array = boundsToWidth <$> bounds array
-      where
-        boundsToWidth (Coord xmin _, Coord xmax _) = xmax - xmin + 1
+    getSize :: board ph -> m BoardSize
+    getSize array = do
+        (Coord xmin ymin, Coord xmax ymax) <- bounds array
+        pure BoardSize{cols = xmax - xmin + 1, rows = ymax - ymin + 1}
 
     indices :: board ph -> m [Index ph]
     -- smells like a space leak if the whole list is computed before returned
@@ -87,7 +90,7 @@ instance (MArray arr el m) => Board (WithPass (arr (Int, Int) el)) m where
     array ! (Index i) = readArray (unArrayS array) (y i, x i)
 
     lines array = do
-        width <- getWidth array
+        (cols -> width) <- getSize array
 
         let go [] = []
             go xs =
