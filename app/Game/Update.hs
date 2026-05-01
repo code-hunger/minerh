@@ -99,7 +99,7 @@ computeNewFallState pos =
         (pure Standing)
         $ pos .> GoDown >>= \case
             -- if we won't step on stairs (which are safe), we have to check what's below
-            Nothing -> logInfo "Tried to fall into the abyss! Kept it Standing though." >> pure Standing
+            Nothing -> logInfo "Tried to fall into the abyss! Kept it Standing though.\n" >> pure Standing
             Just belowNext ->
                 ifM
                     (belowNext .~ Air)

@@ -4,7 +4,7 @@
 
 module Vty.Draw where
 
-import Board (Board (Item, getSize, justify, safeAt, (!)), BoardSize, Coord (..), Index (unIndex))
+import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item, safeAt))
 import qualified Board (BoardSize (..))
 import qualified Data.ByteString as BS
 import Data.Maybe (fromMaybe)
@@ -12,7 +12,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Control.Monad.Extra (mapMaybeM)
 import Data.List.Extra (mconcatMap)
 import Game.Core (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
@@ -76,7 +75,7 @@ sliceRow board slice row = mapM forceRead wantedCoords
         -- provide more justified indices, e.g. a function that returns an already justified view
         -- around a justified index.
         fromMaybe (error "Board index out of bounds during rendering")
-            <$> Board.safeAt board k
+            <$> safeAt board k
 
 attr :: Block -> Vty.Attr
 attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53

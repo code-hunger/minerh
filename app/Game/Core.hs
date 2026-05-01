@@ -5,7 +5,7 @@
 
 module Game.Core where
 
-import Board (Board (Item, justify, (!)), Coord (..), Index (unIndex), MBoard)
+import Board (Coord (..), Index (unIndex), MBoard, SafeArray (Item, justify, (!)))
 
 import Control.Monad.Extra (liftM2)
 import Control.Monad.State.Strict (MonadTrans (lift), StateT)

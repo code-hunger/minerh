@@ -1,19 +1,18 @@
 module Main where
 
-import Board (Board (justify), BoardSize (..), Coord (..), WithPass, withPass)
-import BoardGen (CellUpdater, initBoard, makePureBoards, nextBoard)
+import Board (BoardSize (..), Coord (..), SafeArray (justify), WithPass, withPass)
+import BoardGen (CellUpdater, initBoard, nextBoard)
 import Vty.Core (Renderer (..), UserEvent (..), runVty)
 import Vty.Draw (draw)
 
+import Control.Monad
 import qualified Control.Monad.State.Lazy as StateL (evalStateT)
 import Control.Monad.State.Strict (MonadIO (liftIO), MonadTrans (lift), StateT, evalStateT)
 import qualified Control.Monad.State.Strict as State (get, state)
-import Data.Array (Array)
 import Data.Array.IO (IOArray)
 import System.Random (RandomGen, mkStdGen, uniformR)
 
-import Control.Monad
-import Game (Block (..), Dir (..), Game (..), PlayerState (Standing), runPlayerUp)
+import Game (Block (..), Dir (..), Game (Game), PlayerState (Standing), runPlayerUp)
 import qualified Game
 import qualified Game.Update
 import GameLoop (EventEmitter (..), UpdateHandler (..), UpdateStatus (..))
@@ -70,8 +69,8 @@ update (e : events) = do
 size :: BoardSize
 size = BoardSize{cols = 30, rows = 20}
 
-boards :: [Array (Int, Int) Block]
-boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh
+-- boards :: [Array (Int, Int) Block]
+-- boards = makePureBoards (BoardSize{rows = 30, cols = 100}) (mkStdGen 42) Dirt weigh
 
 weigh :: (RandomGen g) => CellUpdater m g Block
 weigh current neighbours =

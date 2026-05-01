@@ -6,9 +6,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Board (Board (..), MBoard (..), Coord (..), Index (unIndex), withPass, unArrayS, WithPass, BoardSize (..)) where
+module Board (SafeArray (..), Board (..), MBoard (..), Coord (..), Index (unIndex), withPass, unArrayS, WithPass, BoardSize (..)) where
 
-import Control.Monad.Extra (mapMaybeM)
 import Data.Array.ST (Ix (inRange, range), MArray (getBounds), getElems, readArray, writeArray)
 import Data.Bifunctor (Bifunctor (bimap))
 import Data.Kind (Type)
@@ -43,17 +42,33 @@ newtype Index b = Index {unIndex :: Coord} -- do NOT export constructor
 
 data BoardSize = BoardSize {rows :: Int, cols :: Int} deriving (Read, Show)
 
--- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
-class (Monad m) => Board board m where
+-- A `justified-containers`-based way of providing typesafe indexing.
+-- The user receives a typesafe index only if it is valid for the given board.
+-- Because a board cannot change size, this index is then valid forever.
+class (Monad m) => SafeArray board m where
     type Item board :: Type
+
     (!) :: board ph -> Index ph -> m (Item board)
-    lines :: board ph -> m [[Item board]]
-    bounds :: board ph -> m (Coord, Coord)
+
+    hasIndex :: board ph -> Coord -> m Bool
 
     safeAt :: board ph -> Coord -> m (Maybe (Item board))
-    safeAt array j = mapMM (array !) (justify array j)
-      where
-        mapMM f mta = mapM f =<< mta
+    safeAt array j = justify array j >>= mapM (array !)
+
+    justify :: board ph -> Coord -> m (Maybe (Index ph))
+    justify array i = do
+        isValid <- array `hasIndex` i
+        pure $
+            if isValid
+                then Just (Index i)
+                else Nothing
+
+-- A `board` is an abstraction over a 2D matrix of elements `el`, that lives in a monad `m`.
+-- It extends the generic SafeArray to work with a rectangular structure providing `indices`,
+-- `lines` and `bounds`
+class (SafeArray board m) => Board board m where
+    lines :: board ph -> m [[Item board]]
+    bounds :: board ph -> m (Coord, Coord)
 
     getSize :: board ph -> m BoardSize
     getSize array = do
@@ -64,17 +79,6 @@ class (Monad m) => Board board m where
     -- smells like a space leak if the whole list is computed before returned
     indices array = map (Index . toCoord) . range . fromCoordPair <$> bounds array
 
-    hasIndex :: board ph -> Coord -> m Bool
-    hasIndex array i = inRange' i <$> bounds array
-
-    justify :: board ph -> Coord -> m (Maybe (Index ph))
-    justify array i = do
-        isValid <- array `hasIndex` i
-        pure $
-            if isValid
-                then Just (Index i)
-                else Nothing
-
     elems :: board ph -> m [(Index ph, Item board)]
     elems b = indices b >>= traverse coupleValue
       where
@@ -84,11 +88,14 @@ class (Monad m) => Board board m where
 class (Board board m) => MBoard board m where
     write :: board ph -> Index ph -> Item board -> m ()
 
-instance (MArray arr el m) => Board (WithPass (arr (Int, Int) el)) m where
+instance (MArray arr el m) => SafeArray (WithPass (arr (Int, Int) el)) m where
     type Item (WithPass (arr (Int, Int) el)) = el
 
     array ! (Index i) = readArray (unArrayS array) (y i, x i)
 
+    hasIndex array i = inRange' i <$> bounds array
+
+instance (MArray arr el m) => Board (WithPass (arr (Int, Int) el)) m where
     lines array = do
         (cols -> width) <- getSize array
 

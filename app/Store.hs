@@ -2,7 +2,7 @@
 
 module Store (serialize, deserialize) where
 
-import Board (Board (Item, bounds, lines), BoardSize (..), Coord (..), WithPass, withPass)
+import Board (Board (bounds, lines), BoardSize (..), Coord (..), SafeArray (Item), WithPass, withPass)
 import BoardGen (loadBoard)
 import Data.Array.Base (MArray)
 import Data.Char (ord)

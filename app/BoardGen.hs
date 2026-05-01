@@ -8,7 +8,7 @@ import Control.Monad.ST.Lazy.Unsafe (unsafeInterleaveST)
 import Data.Array (Array)
 import Data.Array.ST (STArray, freeze, newArray, newListArray)
 
-import Board (Board (..), BoardSize (cols, rows), Coord (Coord), Index (unIndex), MBoard (..), withPass)
+import Board (Board (..), BoardSize (cols, rows), Coord (Coord), Index (unIndex), MBoard (..), SafeArray (..), withPass)
 import Control.Monad.State (MonadTrans (lift), StateT, execStateT)
 import Data.Foldable (traverse_)
 import Data.Maybe (catMaybes)
