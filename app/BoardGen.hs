@@ -41,7 +41,9 @@ makePureBoards size g def weigh = runST $ do
                 -- Then we update the board with the `nextBoard`,
                 -- i.e. we run one epoch of the automata
                 _ <- execStateT (nextBoard b weigh) g
-                --
+                -- We want to produce an infinite list of boards, therefore we want the `rest` of
+                -- the list to be lazy. To that end, we need the defer the recursive step until
+                -- evaluation is forced, which for an ST/IO program is done by `unsafeInterleaveST`.
                 rest <- unsafeInterleaveST go
                 pure (a : rest)
          in go
