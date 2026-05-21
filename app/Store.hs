@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ApplicativeDo #-}
 
 module Store (serialize, deserialize) where
 
@@ -10,7 +10,7 @@ import Game (Block (..), Game (..))
 
 serialize ::
     forall ph m board.
-    (Board board m, Item board ~ Block) =>
+    (Board board m, Item board ~ Block, Applicative m) =>
     Game (board ph) ph ->
     m String
 serialize (Game (pos, playerState) board _) = do

@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module BoardGen where
 
 import Data.Array.MArray (MArray)
@@ -34,13 +36,14 @@ makePureBoards size g def weigh = runST $ do
 
     -- get a type-safe indexing pass for the mutable board
     withPass board $ \b ->
-        let go = do
+        let updateBoard = execStateT (nextBoard b weigh) g
+            go = do
                 -- We will return a copy of the current mutable board,
                 -- so we need to freeze a copy
                 a <- freeze board
                 -- Then we update the board with the `nextBoard`,
                 -- i.e. we run one epoch of the automata
-                _ <- execStateT (nextBoard b weigh) g
+                _ <- updateBoard
                 -- We want to produce an infinite list of boards, therefore we want the `rest` of
                 -- the list to be lazy. To that end, we need the defer the recursive step until
                 -- evaluation is forced, which for an ST/IO program is done by `unsafeInterleaveST`.
@@ -50,7 +53,7 @@ makePureBoards size g def weigh = runST $ do
 
 nextBoard ::
     forall g board ph m.
-    (RandomGen g, MBoard board m) =>
+    (RandomGen g, MBoard board m, Monad m) =>
     board ph ->
     CellUpdater m g (Item board) ->
     StateT g m ()
@@ -63,10 +66,14 @@ nextBoard board weigh =
         neighbours <- lift $ getNeighbours i board
         nextVal <- weigh val neighbours
         lift $ write board i nextVal
+    elems :: board ph -> m [(Index ph, Item board)]
+    elems b = indices b >>= traverse coupleValue
+      where
+        coupleValue i = (i,) <$> (b ! i :: m (Item board))
 
 getNeighbours ::
     forall m board ph.
-    (MBoard board m) =>
+    (MBoard board m, Monad m) =>
     Index ph ->
     board ph ->
     m [Item board]

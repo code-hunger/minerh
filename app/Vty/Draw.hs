@@ -1,10 +1,11 @@
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Vty.Draw where
 
-import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item, safeAt))
+import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item, justify, (!)))
 import qualified Board (BoardSize (..))
 import qualified Data.ByteString as BS
 import Data.Maybe (fromMaybe)
@@ -16,12 +17,12 @@ import Data.List.Extra (mconcatMap)
 import Game.Core (Block (..), Game (Game))
 import qualified Graphics.Vty as Vty
 
-draw :: (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Picture
+draw :: (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
 
 data BoardSlice = BoardSlice {rows :: Int, cols :: Int, startX :: Int, startY :: Int}
 
-boardToImage :: forall board m ph. (Board board m, Item board ~ Block) => Game (board ph) ph -> m Vty.Image
+boardToImage :: forall board m ph. (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Image
 boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
     slice <- makeSlice <$> getSize board
     (stats <>) . addHorizontalBorders slice <$> image slice
@@ -60,7 +61,7 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
          in Vty.horizCat (toPic <$> indexed (startX slice) xs)
 
-sliceRow :: forall m board ph. (Board board m) => board ph -> BoardSlice -> Int -> m [Item board]
+sliceRow :: forall m board ph. (Board board m, Monad m) => board ph -> BoardSlice -> Int -> m [Item board]
 sliceRow board slice row = mapM forceRead wantedCoords
   where
     wantedCoords =
@@ -75,7 +76,7 @@ sliceRow board slice row = mapM forceRead wantedCoords
         -- provide more justified indices, e.g. a function that returns an already justified view
         -- around a justified index.
         fromMaybe (error "Board index out of bounds during rendering")
-            <$> safeAt board k
+            <$> (justify board k >>= mapM (board !))
 
 attr :: Block -> Vty.Attr
 attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53

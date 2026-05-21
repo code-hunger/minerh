@@ -1,8 +1,8 @@
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -45,15 +45,12 @@ data BoardSize = BoardSize {rows :: Int, cols :: Int} deriving (Read, Show)
 -- A `justified-containers`-based way of providing typesafe indexing.
 -- The user receives a typesafe index only if it is valid for the given board.
 -- Because a board cannot change size, this index is then valid forever.
-class (Monad m) => SafeArray board m where
+class (Functor m) => SafeArray board m where
     type Item board :: Type
 
     (!) :: board ph -> Index ph -> m (Item board)
 
     hasIndex :: board ph -> Coord -> m Bool
-
-    safeAt :: board ph -> Coord -> m (Maybe (Item board))
-    safeAt array j = justify array j >>= mapM (array !)
 
     justify :: board ph -> Coord -> m (Maybe (Index ph))
     justify array i = do
@@ -72,17 +69,12 @@ class (SafeArray board m) => Board board m where
 
     getSize :: board ph -> m BoardSize
     getSize array = do
-        (Coord xmin ymin, Coord xmax ymax) <- bounds array
+        ~(Coord xmin ymin, Coord xmax ymax) <- bounds array
         pure BoardSize{cols = xmax - xmin + 1, rows = ymax - ymin + 1}
 
     indices :: board ph -> m [Index ph]
     -- smells like a space leak if the whole list is computed before returned
     indices array = map (Index . toCoord) . range . fromCoordPair <$> bounds array
-
-    elems :: board ph -> m [(Index ph, Item board)]
-    elems b = indices b >>= traverse coupleValue
-      where
-        coupleValue i = (i,) <$> (b ! i :: m (Item board))
 
 -- A mutable board is a board that can be mutated
 class (Board board m) => MBoard board m where
