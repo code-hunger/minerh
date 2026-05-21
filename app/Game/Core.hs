@@ -11,6 +11,7 @@ import Control.Monad.Extra (liftM2)
 import Control.Monad.State.Strict (MonadTrans (lift), StateT)
 import qualified Control.Monad.State.Strict as State
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
+import Data.Functor ((<&>))
 import Data.Maybe (catMaybes)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
@@ -27,14 +28,14 @@ type MovingPart ph =
     )
 
 data PlayerState ph
-    = Standing
-    | Digging Dir Int (Index ph)
-    | Falling
-    | Running Dir (Index ph)
+    = Standing (Index ph)
+    | Digging Dir Int (AdjacentPair ph)
+    | Falling (AdjacentPair ph)
+    | Running Dir (AdjacentPair ph)
     deriving (Show, Read)
 
 data Game board ph = Game
-    { player :: (Index ph, PlayerState ph)
+    { player :: PlayerState ph
     , board :: board
     , movingParts :: [MovingPart ph]
     }
@@ -51,10 +52,17 @@ type GameM ph m a =
     StateT (Game (board ph) ph) m a
 
 playerState :: GameM ph m (PlayerState ph)
-playerState = State.gets $ \(Game (_, s) _ _) -> s
+playerState = State.gets $ \(Game s _ _) -> s
 
-playerPos :: GameM ph m (Index ph)
-playerPos = State.gets $ \(Game (p, _) _ _) -> p
+playerPos :: PlayerState ph -> Index ph
+playerPos = \case
+    Standing p -> p
+    Digging _ _ (p, _) -> p
+    Falling (p, _) -> p
+    Running _ (p, _) -> p
+
+playerPosM :: GameM ph m (Index ph)
+playerPosM = playerPos <$> playerState
 
 canBreathe :: Block -> Bool
 canBreathe blockType = blockType == Air || blockType == Stairs

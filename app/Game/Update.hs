@@ -31,20 +31,19 @@ updateMovingParts = do
 
 dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
-    whenJustM (playerPos ^> GoDown) $ \belowPlayer ->
+    whenJustM (playerPosM ^> GoDown) $ \belowPlayer ->
         whenM (belowPlayer .~ Air ^&&^ notOnStairs) $ do
             fallingState' <- computeNewFallState belowPlayer
             State.modify' $
-                \g -> g{player = (belowPlayer, fallingState')}
+                \g -> g{player = fallingState'}
   where
     notOnStairs :: GameM ph m Bool
-    notOnStairs = not <$> playerPos ^~ Stairs
+    notOnStairs = not <$> playerPosM ^~ Stairs
 
 updatePlayerState :: forall m ph. GameM ph m ()
-updatePlayerState = do
-    g@(Game (playerPos_, playerState) _ _) <- State.get
-    case playerState of
-        Running dir nextPos ->
+updatePlayerState =
+    playerState >>= \case
+        Running dir (playerPos_, nextPos) ->
             let stairsNeededAt = case dir of
                     GoUp -> playerPos_
                     GoDown -> nextPos
@@ -54,57 +53,51 @@ updatePlayerState = do
                     (canClimb ^&&^ canBreatheAt nextPos)
                     ( nextPos .> dir >>= \case
                         Just nextNextPos ->
-                            State.put $ g{player = (nextPos, Running dir nextNextPos)}
+                            State.modify $ \g -> g{player = Running dir (nextPos, nextNextPos)}
                         Nothing ->
-                            State.put $ g{player = (nextPos, Standing)}
+                            State.modify $ \g -> g{player = Standing nextPos}
                     )
-                    (State.put $ g{player = (playerPos_, Standing)})
-        (Digging dir ticks nextPos) ->
+                    (State.modify $ \g -> g{player = Standing playerPos_})
+        (Digging dir ticks (playerPos_, nextPos)) ->
             case ticks of
                 0 -> do
                     write' nextPos Air
                     fallingState' <- computeNewFallState nextPos
-                    State.put $
+                    State.modify $ \g ->
                         g
                             { player =
                                 -- if we dug up, we stay here; if we dug down - we'll fall anyway,
                                 -- so we only need to care for left and right
-                                ( if dir == GoLeft || dir == GoRight
-                                    then nextPos
-                                    else playerPos_
-                                , fallingState'
-                                )
+                                if dir == GoUp
+                                    then Standing playerPos_
+                                    else fallingState'
                             }
                     whenJustM (trackDug nextPos) (addToTracked 60)
                 _ ->
-                    State.put $
-                        g{player = (playerPos_, Digging dir (ticks - 1) nextPos)}
-        Falling ->
-            playerPos_ .> GoDown >>= \case
-                Just nextPos ->
-                    ifM
-                        (nextPos !~ Air)
-                        (State.put g{player = (playerPos_, Standing)})
-                        (State.put g{player = (nextPos, Falling)})
-                Nothing ->
-                    do
-                        logInfo "Was falling, but hit the ground\n"
-                        State.put g{player = (playerPos_, Standing)}
+                    State.modify $ \g ->
+                        g{player = Digging dir (ticks - 1) (playerPos_, nextPos)}
+        Falling (playerPos_, nextPos) ->
+            ifM
+                (nextPos !~ Air)
+                (State.modify $ \g -> g{player = Standing playerPos_})
+                $ (nextPos .> GoDown) >>= \case
+                    Just nextNextPos -> (State.modify $ \g -> g{player = Falling (nextPos, nextNextPos)})
+                    Nothing -> (State.modify $ \g -> g{player = Standing nextPos})
         _ -> pure ()
 
 computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
 computeNewFallState pos =
     ifM
         (pos .~ Stairs)
-        (pure Standing)
+        (pure $ Standing pos)
         $ pos .> GoDown >>= \case
             -- if we won't step on stairs (which are safe), we have to check what's below
-            Nothing -> logInfo "Tried to fall into the abyss! Kept it Standing though.\n" >> pure Standing
+            Nothing -> logInfo "Tried to fall into the abyss! Kept it Standing though.\n" >> pure (Standing pos)
             Just belowNext ->
                 ifM
                     (belowNext .~ Air)
-                    (pure Falling)
-                    (pure Standing)
+                    (pure $ Falling (pos, belowNext))
+                    (pure $ Standing pos)
 
 -- A hitting of the ground is a pair of locations (below, top) denoting that the top one hit the
 -- bottom as a result of a fall.

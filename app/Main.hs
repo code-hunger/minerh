@@ -37,7 +37,7 @@ main = do
                 nextBoard board weigh
             Just startPos <- justify board $ Coord (cols size `div` 2) 0
             evalStateT (runVty f) $
-                Game (startPos, Standing) board []
+                Game (Standing startPos) board []
     loadGame = do
         gameData <- readFile storeFileName
         deserialize gameData $ evalStateT (runVty f)

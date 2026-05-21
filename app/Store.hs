@@ -13,14 +13,13 @@ serialize ::
     (Board board m, Item board ~ Block, Applicative m) =>
     Game (board ph) ph ->
     m String
-serialize (Game (pos, playerState) board _) = do
+serialize (Game playerState board _) = do
     lines_ <- Board.lines board
     size <- flip fmap (bounds board) $ \((Coord 0 0), bound) ->
         BoardSize{rows = y bound + 1, cols = x bound + 1} -- bounds are inclusive
     pure $
         unlines $
-            show pos
-                : show playerState
+            show playerState
                 : show size
                 : fmap (map printBlock) lines_
 
@@ -30,8 +29,7 @@ deserialize ::
     (forall ph. Game (WithPass (a (Int, Int) Block) ph) ph -> m r) ->
     m r
 deserialize string f = do
-    let ( pos
-                : playerState
+    let ( playerState
                 : size
                 : boardData
             ) = Prelude.lines string
@@ -39,10 +37,7 @@ deserialize string f = do
     withPass array $ \board ->
         f $
             Game
-                { player =
-                    ( read pos
-                    , read playerState
-                    )
+                { player = read playerState
                 , movingParts = []
                 , board = board
                 }

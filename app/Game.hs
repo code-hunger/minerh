@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Game (Block (..), Game (..), Dir (..), PlayerState (..), runPlayerUp, movePlayer) where
@@ -5,30 +6,29 @@ module Game (Block (..), Game (..), Dir (..), PlayerState (..), runPlayerUp, mov
 import Board (Index)
 import Control.Monad.Extra
 import qualified Control.Monad.State.Strict as State
+import Data.Functor ((<&>))
 import Game.Core
 import Game.Update
 
 movePlayer :: Dir -> GameM ph m ()
-movePlayer dir = do
-    (Game (playerPos, playerState) _ _) <- State.get
+movePlayer dir =
     let alreadyWantsToDigThere =
             -- if there's alread a dig request registered in that direction,
             -- we want to ignore it
-            case playerState of
+            playerState <&> \case
                 (Digging requestDir _ _) -> requestDir == dir
                 _ -> False
-
-    unlessM isFalling $
-        whenJustM (playerPos `move` dir) $
-            unless alreadyWantsToDigThere
-                . doMove
+     in unlessM alreadyWantsToDigThere $
+            unlessM isFalling $
+                whenJustM (playerPosM ^> dir) doMove
   where
-    doMove :: AdjacentPair ph -> GameM ph m ()
-    doMove (moveFrom, moveTo) = do
+    doMove :: Index ph -> GameM ph m ()
+    doMove moveTo = do
+        moveFrom <- playerPosM
         nextBlockType <- blockTypeAt moveTo
         let needsToDig = nextBlockType == Dirt
         when needsToDig $
-            State.modify' (\g -> g{player = (moveFrom, Digging dir 4 moveTo)})
+            State.modify' (\g -> g{player = Digging dir 4 (moveFrom, moveTo)})
         let willMove =
                 not needsToDig
                     && nextBlockType /= Stone
@@ -41,30 +41,18 @@ movePlayer dir = do
             write' moveFrom Stairs
         when willMove $ do
             fallingState' <- computeNewFallState moveTo
-            case (fallingState', dir) of
-                (Falling, GoDown) ->
-                    State.modify' (\g -> g{player = (moveFrom, fallingState')})
-                _ ->
-                    State.modify' (\g -> g{player = (moveTo, fallingState')})
+            State.modify' (\g -> g{player = fallingState'})
 
-move ::
-    Index ph ->
-    Dir ->
-    GameM ph m (Maybe (Index ph, Index ph))
-i `move` dir =
-    i .> dir >>= \case
-        Nothing -> pure Nothing
-        Just j -> pure $ Just (i, j)
 runPlayerUp :: Dir -> GameM ph m ()
 runPlayerUp dir = do
-    p <- playerPos
+    p <- playerPosM
     whenM isStanding $
         whenJustM (p .> dir) $ \nextPos ->
             State.modify' $
-                \g -> g{player = (p, Running dir nextPos)}
+                \g -> g{player = Running dir (p, nextPos)}
 
 isFalling :: GameM ph m Bool
-isFalling = (\case Falling -> True; _ -> False) <$> playerState
+isFalling = (\case Falling _ -> True; _ -> False) <$> playerState
 
 isStanding :: GameM ph m Bool
-isStanding = (\case Standing -> True; _ -> False) <$> playerState
+isStanding = (\case Standing _ -> True; _ -> False) <$> playerState

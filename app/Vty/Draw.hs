@@ -14,7 +14,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
 import Data.List.Extra (mconcatMap)
-import Game.Core (Block (..), Game (Game))
+import Game.Core (Block (..), Game (Game), playerPos)
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Picture
@@ -23,7 +23,7 @@ draw game = Vty.picForImage <$> boardToImage game
 data BoardSlice = BoardSlice {rows :: Int, cols :: Int, startX :: Int, startY :: Int}
 
 boardToImage :: forall board m ph. (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Image
-boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
+boardToImage (Game playerState board movingParts) = do
     slice <- makeSlice <$> getSize board
     (stats <>) . addHorizontalBorders slice <$> image slice
   where
@@ -31,9 +31,11 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
         BoardSlice
             { rows = Board.rows size `min` 50
             , cols = Board.cols size `min` 50
-            , startX = ((x playerPos - 25) `min` (Board.cols size - 50)) `max` 0
-            , startY = ((y playerPos - 25) `min` (Board.rows size - 50)) `max` 0
+            , startX = ((x pp - 25) `min` (Board.cols size - 50)) `max` 0
+            , startY = ((y pp - 25) `min` (Board.rows size - 50)) `max` 0
             }
+
+    pp = unIndex $ playerPos playerState
 
     image slice =
         let enumerateRows = indexed (startY slice)
@@ -56,7 +58,7 @@ boardToImage (Game (unIndex -> playerPos, playerState) board movingParts) = do
 
     printLine slice (row, xs) =
         let toPic (col, block) =
-                if playerPos == Coord col row
+                if pp == Coord col row
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
          in Vty.horizCat (toPic <$> indexed (startX slice) xs)
