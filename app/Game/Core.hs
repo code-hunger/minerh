@@ -46,13 +46,15 @@ type GameM ph m a =
     forall board.
     ( MBoard board m
     , State.MonadIO m -- we just use this for logging
-    , MonadFail m
     , Item board ~ Block
     ) =>
     StateT (Game (board ph) ph) m a
 
 playerState :: GameM ph m (PlayerState ph)
 playerState = State.gets $ \(Game s _ _) -> s
+
+setPlayerState :: PlayerState ph -> GameM ph m ()
+setPlayerState newState = State.modify $ \g -> g{player = newState}
 
 playerPos :: PlayerState ph -> Index ph
 playerPos = \case

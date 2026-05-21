@@ -3,9 +3,10 @@
 
 module Game.Update (update, write', computeNewFallState) where
 
-import Control.Monad.State.Strict (MonadTrans (lift), StateT)
+import Control.Monad.State.Strict (MonadTrans (lift))
 import qualified Control.Monad.State.Strict as State
 import Data.Either (partitionEithers)
+import Data.Functor ((<&>))
 
 import Board (Coord (..), Index (unIndex), MBoard (write))
 import BoardGen (mapMM_)
@@ -19,7 +20,7 @@ update :: (State.MonadIO m) => GameM ph m ()
 update = do
     updateMovingParts
     dropPlayerIfAir
-    updatePlayerState
+    playerState >>= updatePlayerState >>= setPlayerState
 
 updateMovingParts :: (State.MonadIO m) => GameM ph m ()
 updateMovingParts = do
@@ -32,58 +33,52 @@ updateMovingParts = do
 dropPlayerIfAir :: GameM ph m ()
 dropPlayerIfAir =
     whenJustM (playerPosM ^> GoDown) $ \belowPlayer ->
-        whenM (belowPlayer .~ Air ^&&^ notOnStairs) $ do
-            fallingState' <- computeNewFallState belowPlayer
-            State.modify' $
-                \g -> g{player = fallingState'}
+        whenM (belowPlayer .~ Air ^&&^ notOnStairs) $
+            computeNewFallState belowPlayer >>= setPlayerState
   where
     notOnStairs :: GameM ph m Bool
     notOnStairs = not <$> playerPosM ^~ Stairs
 
-updatePlayerState :: forall m ph. GameM ph m ()
-updatePlayerState =
-    playerState >>= \case
-        Running dir (playerPos_, nextPos) ->
-            let stairsNeededAt = case dir of
-                    GoUp -> playerPos_
-                    GoDown -> nextPos
-                    _ -> error "Running implemented only for up/down."
-                canClimb = stairsNeededAt .~ Stairs
-             in ifM
-                    (canClimb ^&&^ canBreatheAt nextPos)
-                    ( nextPos .> dir >>= \case
-                        Just nextNextPos ->
-                            State.modify $ \g -> g{player = Running dir (nextPos, nextNextPos)}
-                        Nothing ->
-                            State.modify $ \g -> g{player = Standing nextPos}
-                    )
-                    (State.modify $ \g -> g{player = Standing playerPos_})
-        (Digging dir ticks (playerPos_, nextPos)) ->
-            case ticks of
-                0 -> do
-                    write' nextPos Air
-                    fallingState' <- computeNewFallState nextPos
-                    State.modify $ \g ->
-                        g
-                            { player =
-                                -- if we dug up, we stay here; if we dug down - we'll fall anyway,
-                                -- so we only need to care for left and right
-                                if dir == GoUp
-                                    then Standing playerPos_
-                                    else fallingState'
-                            }
-                    whenJustM (trackDug nextPos) (addToTracked 60)
-                _ ->
-                    State.modify $ \g ->
-                        g{player = Digging dir (ticks - 1) (playerPos_, nextPos)}
-        Falling (playerPos_, nextPos) ->
-            ifM
-                (nextPos !~ Air)
-                (State.modify $ \g -> g{player = Standing playerPos_})
-                $ (nextPos .> GoDown) >>= \case
-                    Just nextNextPos -> (State.modify $ \g -> g{player = Falling (nextPos, nextNextPos)})
-                    Nothing -> (State.modify $ \g -> g{player = Standing nextPos})
-        _ -> pure ()
+updatePlayerState :: forall m ph. PlayerState ph -> GameM ph m (PlayerState ph)
+updatePlayerState = \case
+    Running dir (playerPos_, nextPos) ->
+        let stairsNeededAt = case dir of
+                GoUp -> playerPos_
+                GoDown -> nextPos
+                _ -> error "Running implemented only for up/down."
+            canClimb = stairsNeededAt .~ Stairs
+         in ifM
+                (canClimb ^&&^ canBreatheAt nextPos)
+                ( nextPos .> dir <&> \case
+                    Just nextNextPos ->
+                        Running dir (nextPos, nextNextPos)
+                    Nothing ->
+                        Standing nextPos
+                )
+                (pure $ Standing playerPos_)
+    (Digging dir ticks (playerPos_, nextPos)) ->
+        case ticks of
+            0 -> do
+                write' nextPos Air
+                fallingState' <- computeNewFallState nextPos
+                whenJustM (trackDug nextPos) (addToTracked 60)
+                pure $
+                    -- if we dug up, we stay here; if we dug down - we'll fall anyway,
+                    -- so we only need to care for left and right
+                    if dir == GoUp
+                        then Standing playerPos_
+                        else fallingState'
+            _ ->
+                pure $ Digging dir (ticks - 1) (playerPos_, nextPos)
+    Falling (playerPos_, nextPos) ->
+        ifM
+            (nextPos !~ Air)
+            (pure $ Standing playerPos_)
+            ( (nextPos .> GoDown) <&> \case
+                Just nextNextPos -> Falling (nextPos, nextNextPos)
+                Nothing -> Standing nextPos
+            )
+    other -> pure other
 
 computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
 computeNewFallState pos =
@@ -159,7 +154,7 @@ trackDug ::
     GameM ph m (Maybe (AdjacentPair ph))
 trackDug pos = do
     unlessM (pos .~ Air) $
-        fail "Called track dug on non-air!"
+        error "Called track dug on non-air!"
 
     (pos .> GoUp) >>= \case
         Nothing -> pure Nothing
