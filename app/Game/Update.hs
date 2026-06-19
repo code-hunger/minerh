@@ -16,28 +16,10 @@ import Control.Monad.Extra
 import Data.Maybe (mapMaybe)
 import Data.Traversable (for)
 
-update :: (State.MonadIO m) => GameM ph m ()
+update :: GameM ph m ()
 update = do
-    updateMovingParts
-    dropPlayerIfAir
+    pullMovingPartsDown
     playerState >>= updatePlayerState >>= setPlayerState
-
-updateMovingParts :: (State.MonadIO m) => GameM ph m ()
-updateMovingParts = do
-    (groundsHit, pulledDown) <- pullMovingPartsDown
-
-    State.modify' (\g -> g{movingParts = pulledDown})
-
-    explodeGroundHits groundsHit
-
-dropPlayerIfAir :: GameM ph m ()
-dropPlayerIfAir =
-    whenJustM (playerPosM ^> GoDown) $ \belowPlayer ->
-        whenM (belowPlayer .~ Air ^&&^ notOnStairs) $
-            computeNewFallState belowPlayer >>= setPlayerState
-  where
-    notOnStairs :: GameM ph m Bool
-    notOnStairs = not <$> playerPosM ^~ Stairs
 
 updatePlayerState :: forall m ph. PlayerState ph -> GameM ph m (PlayerState ph)
 updatePlayerState = \case
@@ -56,20 +38,18 @@ updatePlayerState = \case
                         Standing nextPos
                 )
                 (pure $ Standing playerPos_)
-    (Digging dir ticks (playerPos_, nextPos)) ->
-        case ticks of
-            0 -> do
-                write' nextPos Air
-                fallingState' <- computeNewFallState nextPos
-                whenJustM (trackDug nextPos) (addToTracked 60)
-                pure $
-                    -- if we dug up, we stay here; if we dug down - we'll fall anyway,
-                    -- so we only need to care for left and right
-                    if dir == GoUp
-                        then Standing playerPos_
-                        else fallingState'
-            _ ->
-                pure $ Digging dir (ticks - 1) (playerPos_, nextPos)
+    Digging dir 0 (playerPos_, nextPos) -> do
+        write' nextPos Air
+        fallingState' <- computeNewFallState nextPos
+        whenJustM (trackDug nextPos) (addToTracked 60)
+        pure $
+            -- if we dug up, we stay here; if we dug down - we'll fall anyway,
+            -- so we only need to care for left and right
+            if dir == GoUp
+                then Standing playerPos_
+                else fallingState'
+    Digging dir ticks (playerPos_, nextPos) ->
+        pure $ Digging dir (ticks - 1) (playerPos_, nextPos)
     Falling (playerPos_, nextPos) ->
         ifM
             (nextPos !~ Air)
@@ -78,7 +58,17 @@ updatePlayerState = \case
                 Just nextNextPos -> Falling (nextPos, nextNextPos)
                 Nothing -> Standing nextPos
             )
-    other -> pure other
+    Standing playerPos_ ->
+        (playerPos_ .> GoDown) >>= \case
+            Just belowPlayer ->
+                ifM
+                    (belowPlayer .~ Air ^&&^ notOnStairs)
+                    (computeNewFallState belowPlayer)
+                    (pure $ Standing playerPos_)
+            Nothing -> pure $ Standing playerPos_
+  where
+    notOnStairs :: GameM ph m Bool
+    notOnStairs = not <$> playerPosM ^~ Stairs
 
 computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
 computeNewFallState pos =
@@ -98,10 +88,15 @@ computeNewFallState pos =
 -- bottom as a result of a fall.
 newtype GroundHit ph = GroundHit (AdjacentPair ph)
 
-pullMovingPartsDown :: GameM ph m ([GroundHit ph], [MovingPart ph])
+pullMovingPartsDown :: GameM ph m ()
 pullMovingPartsDown = do
     (Game _ _ movingParts) <- State.get
-    partitionOutcomes <$> mapM updateMovingPart movingParts
+
+    (groundsHit, pulledDown) <- partitionOutcomes <$> mapM updateMovingPart movingParts
+
+    State.modify' (\g -> g{movingParts = pulledDown})
+
+    explodeGroundHits groundsHit
   where
     partitionOutcomes :: [MovementOutcome ph] -> ([GroundHit ph], [MovingPart ph])
     partitionOutcomes = partitionEithers . mapMaybe convert
