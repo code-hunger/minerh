@@ -1,10 +1,12 @@
-module Vty.Core (runVty, UserEvent (..), Renderer (..)) where
+module Render.Vty.Core (runVty, Renderer (..)) where
+
+import Control.Monad.IO.Class (MonadIO (liftIO))
 
 import qualified Graphics.Vty as Vty
 import Graphics.Vty.CrossPlatform (mkVty)
-
-import Control.Monad.IO.Class (MonadIO (liftIO))
 import Graphics.Vty.Input.Events (Event (EvKey))
+
+import Render.Common (UserEvent (..))
 
 newtype Renderer = Renderer (Vty.Picture -> IO ())
 
@@ -22,8 +24,6 @@ runVty f = do
 
     liftIO $ Vty.shutdown vty
     liftIO $ putStrLn "Game over!"
-
-data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KUpShift | KDownShift | KRight | Save | Other deriving (Show, Eq)
 
 toUserEvent :: Vty.Event -> UserEvent
 toUserEvent = \case

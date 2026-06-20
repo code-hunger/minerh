@@ -3,24 +3,24 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Vty.Draw where
+module Render.Vty.Draw where
 
-import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item, justify, (!)))
+import Render.Common (BoardSlice (..), sliceImage)
+
+import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item))
 import qualified Board (BoardSize (..))
+import Game.Core (Block (..), Game (Game), playerPos)
+
 import qualified Data.ByteString as BS
-import Data.Maybe (fromMaybe)
+import Data.List.Extra (mconcatMap)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word8)
 
-import Data.List.Extra (mconcatMap)
-import Game.Core (Block (..), Game (Game), playerPos)
 import qualified Graphics.Vty as Vty
 
 draw :: (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Picture
 draw game = Vty.picForImage <$> boardToImage game
-
-data BoardSlice = BoardSlice {rows :: Int, cols :: Int, startX :: Int, startY :: Int}
 
 boardToImage :: forall board m ph. (Board board m, Item board ~ Block, Monad m) => Game (board ph) ph -> m Vty.Image
 boardToImage (Game playerState board movingParts) = do
@@ -39,15 +39,7 @@ boardToImage (Game playerState board movingParts) = do
 
     image slice =
         let enumerateRows = indexed (startY slice)
-         in mconcatMap (addVerticalBorders . printLine slice) . enumerateRows <$> sliceImage slice
-
-    sliceImage :: BoardSlice -> m [[Block]]
-    sliceImage slice =
-        let visibleRows =
-                [ startY slice + i
-                | i <- [0 .. rows slice - 1]
-                ]
-         in mapM (sliceRow board slice) visibleRows
+         in mconcatMap (addVerticalBorders . printLine slice) . enumerateRows <$> sliceImage board slice
 
     stats =
         Vty.string Vty.defAttr $
@@ -62,23 +54,6 @@ boardToImage (Game playerState board movingParts) = do
                     then Vty.utf8String Vty.defAttr $ stringToUtf8 "◉◉"
                     else Vty.utf8String (attr block) $ stringToUtf8 $ printBlock block
          in Vty.horizCat (toPic <$> indexed (startX slice) xs)
-
-sliceRow :: forall m board ph. (Board board m, Monad m) => board ph -> BoardSlice -> Int -> m [Item board]
-sliceRow board slice row = mapM forceRead wantedCoords
-  where
-    wantedCoords =
-        [ Coord (startX slice + i) row
-        | i <- [0 .. cols slice - 1]
-        ]
-    forceRead :: Coord -> m (Item board)
-    forceRead k =
-        -- As of now, we can't convince the type system that our coordinates are valid,
-        -- so we have to use fromJust. I leave a message just in case.
-        -- A more 'proper' solution would be to export richer functions from the Board module, which
-        -- provide more justified indices, e.g. a function that returns an already justified view
-        -- around a justified index.
-        fromMaybe (error "Board index out of bounds during rendering")
-            <$> (justify board k >>= mapM (board !))
 
 attr :: Block -> Vty.Attr
 attr Dirt = Vty.defAttr `Vty.withBackColor` Vty.linearColor @Int 149 69 53

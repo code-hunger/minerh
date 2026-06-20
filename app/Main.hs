@@ -2,8 +2,11 @@ module Main where
 
 import Board (BoardSize (..), Coord (..), SafeArray (justify), WithPass, withPass)
 import BoardGen (CellUpdater, initBoard, nextBoard)
-import Vty.Core (Renderer (..), UserEvent (..), runVty)
-import Vty.Draw (draw)
+
+import Render.Common (UserEvent (..))
+import Render.Sdl.Core (runSDL)
+import Render.Vty.Core (Renderer (..), runVty)
+import Render.Vty.Draw (draw)
 
 import Control.Monad
 import qualified Control.Monad.State.Lazy as StateL (evalStateT)
@@ -18,7 +21,7 @@ import Game.Core (GameM)
 import qualified Game.Update
 import GameLoop (EventEmitter (..), UpdateHandler (..), UpdateStatus (..))
 import qualified GameLoop as Game (loop)
-import SdlPlay (runSDL)
+
 import Store (deserialize, serialize)
 import System.Directory.Extra (doesFileExist)
 import qualified System.Environment as SE
@@ -26,19 +29,18 @@ import qualified System.Environment as SE
 storeFileName :: String
 storeFileName = "store"
 
-type GameIO = forall ph. GameM (WithPass (IOArray (Int, Int) Block)) ph IO ()
+type GameIO ph = GameM (WithPass (IOArray (Int, Int) Block)) ph IO ()
 
 main :: IO ()
 main = do
     hasStore <- doesFileExist storeFileName
     args <- SE.getArgs
-    let renderer :: GameIO
-        renderer = case args of
+    let renderer = case args of
             "SDL" : _ -> runSDL loopInSDL
             _ -> runVty loopInVty
     (if hasStore then loadGame else newGame) renderer
   where
-    newGame :: GameIO -> IO ()
+    newGame :: (forall ph. GameM (WithPass (IOArray (Int, Int) Block)) ph IO ()) -> IO ()
     newGame run = do
         array <- initBoard Dirt size
         withPass array $ \board -> do
@@ -50,7 +52,7 @@ main = do
             evalStateT run $
                 Game (Standing startPos) board []
 
-    loadGame :: GameIO -> IO ()
+    loadGame :: (forall ph. GameIO ph) -> IO ()
     loadGame renderer = do
         gameData <- readFile storeFileName
         deserialize gameData $ evalStateT renderer
