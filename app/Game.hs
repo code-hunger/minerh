@@ -5,7 +5,9 @@ module Game (Block (..), Game (..), Dir (..), PlayerState (..), runPlayerUp, mov
 
 import Board (Index)
 import Control.Monad.Extra
+import Control.Monad.RWS.Strict (MonadTrans (lift))
 import qualified Control.Monad.State.Strict as State
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Functor ((<&>))
 import Game.Core
 import Game.Update
@@ -18,9 +20,11 @@ movePlayer dir =
             playerState <&> \case
                 (Digging requestDir _ _) -> requestDir == dir
                 _ -> False
-     in unlessM alreadyWantsToDigThere $
-            unlessM isFalling $
-                whenJustM (playerPosM ^> dir) doMove
+     in withMaybe $ do
+            guardM $ not <$> alreadyWantsToDigThere
+            guardM $ not <$> isFalling
+            target <- MaybeT (playerPosM ^> dir)
+            lift $ doMove target
   where
     doMove :: Index ph -> GameM board ph m ()
     doMove moveTo = do
