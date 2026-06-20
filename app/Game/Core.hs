@@ -1,4 +1,6 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -24,7 +26,8 @@ type AdjacentPair ph = (Index ph, Index ph)
 
 type MovingPart ph =
     ( Int -- how many ticks should pass until thhe part drops by 1 block
-    , AdjacentPair ph -- the bottom part of a collapsing column
+    , Index ph -- the bottom part of a collapsing column
+    , [Index ph] -- the column
     )
 
 data PlayerState ph
@@ -102,6 +105,17 @@ instance Spatial (AdjacentPair ph) ph where
             i' <- MaybeT $ i .> dir
             j' <- MaybeT $ j .> dir
             pure (i', j')
+
+instance Spatial (Index ph, [Index ph]) ph where
+    (fallOn, column) .> dir =
+        fallOn .> dir >>= \case
+            Nothing -> pure Nothing
+            Just belowFall ->
+                (pure $ Just (belowFall, fallOn : dropLast column))
+      where
+        dropLast [] = error "Drop last on empty list."
+        dropLast [_] = []
+        dropLast (a : rest) = a : dropLast rest
 
 mi ^> dir = mi >>= \i -> i .> dir
 

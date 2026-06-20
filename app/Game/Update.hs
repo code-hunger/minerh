@@ -43,8 +43,6 @@ updatePlayerState = \case
         fallingState' <- computeNewFallState nextPos
         whenJustM (trackDug nextPos) (addToTracked 60)
         pure $
-            -- if we dug up, we stay here; if we dug down - we'll fall anyway,
-            -- so we only need to care for left and right
             if dir == GoUp
                 then Standing playerPos_
                 else fallingState'
@@ -86,7 +84,7 @@ computeNewFallState pos =
 
 -- A hitting of the ground is a pair of locations (below, top) denoting that the top one hit the
 -- bottom as a result of a fall.
-newtype GroundHit ph = GroundHit (AdjacentPair ph)
+data GroundHit ph = GroundHit (Index ph) [Index ph]
 
 pullMovingPartsDown :: GameM ph m ()
 pullMovingPartsDown = do
@@ -106,35 +104,26 @@ pullMovingPartsDown = do
     convert (HitGround ground) = Just $ Left ground
 
     updateMovingPart :: MovingPart ph -> GameM ph m (MovementOutcome ph)
-    updateMovingPart (1, movingPart@(fallOn, _)) =
-        ifM
-            (fallOn .~ Ground)
-            (pure . HitGround $ GroundHit movingPart)
-            (pullDownAt movingPart)
-    updateMovingPart (tick, movingPart) =
-        pure $ StillFlying (tick - 1, movingPart)
-
-    pullDownAt ::
-        AdjacentPair ph ->
-        GameM ph m (MovementOutcome ph)
-    pullDownAt i = go i >> hitTheGround
+    updateMovingPart (1, fallOn, movingPart) =
+        ifM (fallOn .~ Ground) (pure . HitGround $ GroundHit fallOn movingPart) doPullDown
       where
-        hitTheGround =
-            i .> GoDown >>= \case
+        doPullDown = do
+            movingPart `pullDownTo` fallOn
+            (fallOn, movingPart) .> GoDown >>= \case
                 Nothing -> pure OutOfBoard
-                Just pair@(belowBelow, _) ->
+                Just (belowFall, column) ->
                     ifM
-                        (belowBelow .~ Ground)
-                        (pure $ HitGround $ GroundHit pair)
-                        (pure $ StillFlying{nextPosition = (10, pair)})
-        go :: AdjacentPair ph -> GameM ph m ()
-        go pair@(below, above) = do
-            whenM (above .~ Heavy) $ do
-                blockType <- blockTypeAt above
-                write' above Air
-                write' below blockType
-                nextPair <- pair .> GoUp
-                whenJust nextPair go
+                        (belowFall .~ Ground)
+                        (pure $ HitGround $ GroundHit belowFall column)
+                        (pure $ StillFlying{nextPosition = (10, belowFall, column)})
+    updateMovingPart (tick, height, movingPart) =
+        pure $ StillFlying (tick - 1, height, movingPart)
+
+    [] `pullDownTo` fallOn = write' fallOn Air
+    (above : rest) `pullDownTo` fallOn = do
+        blockType <- blockTypeAt above
+        write' fallOn blockType
+        rest `pullDownTo` above
 
 data MovementOutcome ph = OutOfBoard | HitGround (GroundHit ph) | StillFlying {nextPosition :: MovingPart ph}
 
@@ -160,45 +149,50 @@ trackDug pos = do
                 (pure Nothing)
 
 addToTracked :: Int -> AdjacentPair ph -> GameM ph m ()
-addToTracked delay i = do
-    logInfo $ "tracking " ++ show i ++ "\n"
+addToTracked delay (below, above) = do
+    logInfo $ "tracking " ++ show below ++ "\n"
+    fallingColumn <- go above
     State.modify'
-        (\g@(Game _ _ movingParts) -> g{movingParts = (delay, i) : movingParts})
+        (\g@(Game _ _ movingParts) -> g{movingParts = (delay, below, fallingColumn) : movingParts})
+  where
+    go i =
+        ifM
+            (i .~ Heavy)
+            ( (i .> GoUp) >>= \case
+                Just next -> (i :) <$> go next
+                Nothing -> pure []
+            )
+            (pure [])
 
 explodeGroundHits :: [GroundHit ph] -> GameM ph m ()
 explodeGroundHits groundHits = do
     explosives <- concatMapM findExplosives groundHits
-    mapM_ explode explosives
-    possibleFalls <- mapMaybeM justify' $ concat . for explosives $ \explosive ->
-        let i = unIndex explosive
-         in [Coord x' (y i - 1) | x' <- [x i - 1 .. x i + 1]]
-
-    forM_ possibleFalls $ \i ->
-        whenJustM
-            (trackDug i)
-            (addToTracked 5)
+    go explosives
   where
-    findExplosives ::
-        GroundHit ph ->
-        GameM ph m [Index ph]
-    findExplosives (GroundHit (below, above)) =
-        ifM
-            (below .~ Fire)
-            ((below :) <$> searchAbove above)
-            (searchAbove above)
+    findExplosives (GroundHit below above) = do
+        explosiveBelow <- ifM (below .~ Fire) (pure [below]) (pure [])
+        explosivesAbove <- filterM (.~ Fire) above
+        pure (explosiveBelow ++ explosivesAbove)
+    go [] = pure ()
+    go explosives = do
+        (remainingFires, explodedIndices) <- runExplosion explosives
 
-    searchAbove :: Index ph -> GameM ph m [Index ph]
-    searchAbove i =
-        let rest = (i .> GoUp) >>= maybe (pure []) searchAbove
-         in blockTypeAt i >>= \case
-                Fire -> (i :) <$> rest
-                Stone -> rest
-                _ -> pure []
+        forM_ explodedIndices $ \i ->
+            whenJustM (trackDug i) (addToTracked 5)
 
-explode ::
-    Index ph ->
-    GameM ph m ()
-explode = mapMM_ (`write'` Air) . neighbours
+        go remainingFires
+
+-- explodes the neighbours of the fires which are not fires themselves, and returns the fires.
+-- The idea is that any fires neighbouring the explosion will explode on their own a bit later.
+runExplosion ::
+    [Index ph] ->
+    GameM ph m ([Index ph], [Index ph])
+runExplosion is = do
+    -- TODO: WRONG! This may break moving parts which are tracked!
+    forM_ is (`write'` Air)
+    (firesAround, rest) <- partitionM (.~ Fire) =<< concatMapM neighbours is
+    forM_ rest (`write'` Air)
+    pure (firesAround, rest)
 
 logInfo :: String -> GameM ph m ()
 logInfo = State.liftIO . appendFile "log"
