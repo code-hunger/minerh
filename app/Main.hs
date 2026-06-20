@@ -14,21 +14,32 @@ import System.Random (RandomGen, mkStdGen, uniformR)
 
 import Game (Block (..), Dir (..), Game (Game), PlayerState (Standing), runPlayerUp)
 import qualified Game
+import Game.Core (GameM)
 import qualified Game.Update
 import GameLoop (EventEmitter (..), UpdateHandler (..), UpdateStatus (..))
 import qualified GameLoop as Game (loop)
+import SdlPlay (runSDL)
 import Store (deserialize, serialize)
 import System.Directory.Extra (doesFileExist)
+import qualified System.Environment as SE
 
 storeFileName :: String
 storeFileName = "store"
 
+type GameIO = forall ph. GameM (WithPass (IOArray (Int, Int) Block)) ph IO ()
+
 main :: IO ()
 main = do
     hasStore <- doesFileExist storeFileName
-    if hasStore then loadGame else newGame
+    args <- SE.getArgs
+    let renderer :: GameIO
+        renderer = case args of
+            "SDL" : _ -> runSDL
+            _ -> runVty loopInVty
+    (if hasStore then loadGame else newGame) renderer
   where
-    newGame = do
+    newGame :: GameIO -> IO ()
+    newGame run = do
         array <- initBoard Dirt size
         withPass array $ \board -> do
             () <- flip StateL.evalStateT (mkStdGen 42) $ do
@@ -36,13 +47,15 @@ main = do
                 nextBoard board weigh
                 nextBoard board weigh
             Just startPos <- justify board $ Coord (cols size `div` 2) 0
-            evalStateT (runVty f) $
+            evalStateT run $
                 Game (Standing startPos) board []
-    loadGame = do
-        gameData <- readFile storeFileName
-        deserialize gameData $ evalStateT (runVty f)
 
-    f (Renderer render) emitEvent =
+    loadGame :: GameIO -> IO ()
+    loadGame renderer = do
+        gameData <- readFile storeFileName
+        deserialize gameData $ evalStateT renderer
+
+    loopInVty (Renderer render) emitEvent =
         let draw' Die = pure Die
             draw' Live = do
                 state <- State.get
