@@ -10,25 +10,45 @@ import qualified SDL
 import Render.Common (UserEvent (..))
 import Render.Sdl.Draw (GameIO, render)
 
+import Foreign.C (CInt (CInt))
+import Linear (V2 (..))
+
+defaultSize = V2 300 300
+
 runSDL ::
     forall m.
     (MonadIO m) =>
     (GameIO -> IO [UserEvent] -> m ()) ->
     m ()
 runSDL f = do
-    SDL.initializeAll
-    window <- SDL.createWindow "My SDL Application" SDL.defaultWindow
+    SDL.initialize [SDL.InitEvents, SDL.InitVideo]
+    windowSize <- decideWindowSize
+    window <-
+        SDL.createWindow "Haskell Game" $
+            SDL.defaultWindow
+                { SDL.windowInitialSize = V2 windowSize windowSize
+                , SDL.windowResizable = True
+                }
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
 
-    f (render renderer) (liftIO $ map toUserEvent <$> SDL.pollEvents)
+    f (render renderer (fromIntegral windowSize)) (liftIO $ map toUserEvent <$> SDL.pollEvents)
 
     SDL.destroyWindow window
+  where
+    decideWindowSize = do
+        displays <- SDL.getDisplays
+        displaySize <- case displays of
+            [] -> liftIO $ putStrLn "No displays detected, something wrong?" >> pure defaultSize
+            [single] -> pure $ SDL.displayBoundsSize single
+            (first : _) -> liftIO $ putStrLn "Several displays available. Picking first one." >> pure (SDL.displayBoundsSize first)
+        let V2 w h = displaySize
+        pure $ w `min` h
 
 toUserEvent :: SDL.Event -> UserEvent
 toUserEvent = \case
     SDL.Event _ (SDL.KeyboardEvent ke)
-        | SDL.keyboardEventKeyMotion ke == SDL.Pressed
-        , not (SDL.keyboardEventRepeat ke) ->
+        | SDL.keyboardEventKeyMotion ke == SDL.Pressed ->
+            -- , not (SDL.keyboardEventRepeat ke)
             let ks = SDL.keyboardEventKeysym ke
                 code = SDL.keysymKeycode ks
                 mods = SDL.keysymModifier ks

@@ -24,20 +24,22 @@ render ::
     forall board m ph.
     (Board board m, Item board ~ Block, MonadIO m) =>
     SDL.Renderer ->
+    Int ->
     GameM board ph m ()
-render renderer = do
+render renderer windowSize = do
     SDL.clear renderer
     state <- State.get
-    renderGrid renderer state
+    renderGrid renderer windowSize state
     SDL.present renderer
 
 renderGrid ::
     forall board m ph.
     (Board board m, Item board ~ Block, MonadIO m) =>
     SDL.Renderer ->
+    Int ->
     Game (board ph) ph ->
     GameM board ph m ()
-renderGrid renderer (Game playerState board _movingParts) = do
+renderGrid renderer windowSize (Game playerState board _movingParts) = do
     slice <- lift $ makeSlice <$> getSize board
 
     mapM_ (drawRow slice) . zip [0 ..] =<< lift (sliceImage board slice)
@@ -52,7 +54,7 @@ renderGrid renderer (Game playerState board _movingParts) = do
         let x = fromIntegral c * tileSize
             y = fromIntegral r * tileSize
             rect = SDL.Rectangle (SDL.P (V2 x y)) (V2 tileSize tileSize)
-            tileSize = 12
+            tileSize = fromIntegral windowSize `div` 50
 
         SDL.rendererDrawColor renderer SDL.$= colour
         SDL.fillRect renderer (Just rect)
