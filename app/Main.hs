@@ -34,7 +34,7 @@ main = do
     args <- SE.getArgs
     let renderer :: GameIO
         renderer = case args of
-            "SDL" : _ -> runSDL
+            "SDL" : _ -> runSDL loopInSDL
             _ -> runVty loopInVty
     (if hasStore then loadGame else newGame) renderer
   where
@@ -63,6 +63,11 @@ main = do
                 liftIO @_ @() $ render picture
                 pure Live
          in Game.loop (UpdateHandler (draw' <=< update)) (EventEmitter emitEvent)
+
+    loopInSDL draw emitEvent =
+        let draw' Die = pure Die
+            draw' Live = draw >> pure Live
+         in Game.loop (UpdateHandler $ draw' <=< update . concat) (EventEmitter emitEvent)
 
 update ::
     [UserEvent] ->

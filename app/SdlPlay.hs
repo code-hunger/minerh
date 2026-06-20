@@ -5,7 +5,7 @@ module SdlPlay where
 
 import Board (Board (getSize), Coord (..), Index (unIndex), SafeArray (Item), WithPass)
 import qualified Board (BoardSize (..))
-import Control.Monad (forM_)
+import Control.Monad
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State.Strict (MonadTrans (lift))
 import qualified Control.Monad.State.Strict as State (MonadIO (liftIO), get)
@@ -13,46 +13,37 @@ import Data.Array.IO (IOArray)
 import Data.Text ()
 import Data.Word (Word8)
 import Game.Core (Block (..), Game (Game), GameM, playerPos)
-import GameLoop (EventEmitter (EventEmitter), UpdateHandler (UpdateHandler), UpdateStatus (Die, Live))
-import qualified GameLoop as Game (loop)
 import Linear (V2 (..), V4 (..))
 import qualified SDL
-import SDL.Event (Event)
+import Vty.Core (UserEvent (..))
 import Vty.Draw (BoardSlice (..), indexed, sliceRow)
 
 type GameIO = forall ph. GameM (WithPass (IOArray (Int, Int) Block)) ph IO ()
 
-runSDL :: GameIO
-runSDL = do
+runSDL ::
+    forall m.
+    (MonadIO m) =>
+    (GameIO -> IO [UserEvent] -> m ()) ->
+    m ()
+runSDL f = do
     SDL.initializeAll
     window <- SDL.createWindow "My SDL Application" SDL.defaultWindow
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
 
-    Game.loop (UpdateHandler $ update renderer . concat) (EventEmitter SDL.pollEvents)
+    f (render renderer) (State.liftIO $ map toUserEvent <$> SDL.pollEvents)
 
     SDL.destroyWindow window
 
-data UserEvent = KEsc | KQ | KDown | KLeft | KUp | KUpShift | KDownShift | KRight | Save | Other deriving (Show, Eq)
-
-update ::
-    forall board ph.
-    (Board board IO, Item board ~ Block) =>
+render ::
+    forall board m ph.
+    (Board board m, Item board ~ Block, MonadIO m) =>
     SDL.Renderer ->
-    [Event] ->
-    GameM board ph IO UpdateStatus
-update renderer events = do
-    let eventIsQPress event =
-            case SDL.eventPayload event of
-                SDL.KeyboardEvent keyboardEvent ->
-                    SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed
-                        && SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeQ
-                _ -> False
-        qPressed = any eventIsQPress events
-    state <- State.get
+    GameM board ph m ()
+render renderer = do
     SDL.clear renderer
+    state <- State.get
     renderGrid renderer state
     SDL.present renderer
-    pure $ if qPressed then Die else Live
 
 renderGrid ::
     forall board m ph.
@@ -106,3 +97,35 @@ tileColor Fire = V4 255 80 0 255
 
 logInfo :: (MonadIO m) => String -> GameM board ph m ()
 logInfo = State.liftIO . appendFile "log"
+
+toUserEvent :: SDL.Event -> UserEvent
+toUserEvent = \case
+    SDL.Event _ (SDL.KeyboardEvent ke)
+        | SDL.keyboardEventKeyMotion ke == SDL.Pressed
+        , not (SDL.keyboardEventRepeat ke) ->
+            let ks = SDL.keyboardEventKeysym ke
+                code = SDL.keysymKeycode ks
+                mods = SDL.keysymModifier ks
+                shift = hasShift mods
+             in case (code, shift) of
+                    (SDL.KeycodeEscape, _) -> KEsc
+                    (SDL.KeycodeQ, _) -> KQ
+                    (SDL.KeycodeS, _) -> Save
+                    (SDL.KeycodeDown, True) -> KDownShift
+                    (SDL.KeycodeJ, True) -> KDownShift
+                    (SDL.KeycodeDown, _) -> KDown
+                    (SDL.KeycodeJ, _) -> KDown
+                    (SDL.KeycodeUp, True) -> KUpShift
+                    (SDL.KeycodeK, True) -> KUpShift
+                    (SDL.KeycodeUp, _) -> KUp
+                    (SDL.KeycodeK, _) -> KUp
+                    (SDL.KeycodeRight, _) -> KRight
+                    (SDL.KeycodeL, _) -> KRight
+                    (SDL.KeycodeLeft, _) -> KLeft
+                    (SDL.KeycodeH, _) -> KLeft
+                    _ -> Other
+    _ -> Other
+
+-- SDL.KeyModifier is a bitmask newtype; check shift bits.
+hasShift :: SDL.KeyModifier -> Bool
+hasShift (SDL.KeyModifier a b _ _ _ _ _ _ _ _ _) = a || b
