@@ -9,12 +9,12 @@ module Game.Core where
 
 import Board (Coord (..), Index (unIndex), MBoard, SafeArray (Item, justify, (!)))
 
-import Control.Monad.Extra (liftM2)
+import Control.Monad.Extra (guard, liftM2)
 import Control.Monad.State.Strict (MonadTrans (lift), StateT)
 import qualified Control.Monad.State.Strict as State
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Functor ((<&>))
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe)
 
 data Block = Air | Dirt | Stone | Stairs | Fire
     deriving (Eq)
@@ -45,18 +45,22 @@ data Game board ph = Game
 
 -- The GameM monad is a state monad (with IO for logging) containing the Game state with a passkey
 -- ph for typesafe board indexing.
-type GameM ph m a =
-    forall board.
+type GameM board ph m a =
     ( MBoard board m
     , State.MonadIO m -- we just use this for logging
     , Item board ~ Block
     ) =>
     StateT (Game (board ph) ph) m a
 
-playerState :: GameM ph m (PlayerState ph)
+guardM x = lift x >>= guard
+
+withMaybe :: (Functor m, Monoid a) => MaybeT m a -> m a
+withMaybe = fmap (fromMaybe mempty) . runMaybeT
+
+playerState :: GameM board ph m (PlayerState ph)
 playerState = State.gets $ \(Game s _ _) -> s
 
-setPlayerState :: PlayerState ph -> GameM ph m ()
+setPlayerState :: PlayerState ph -> GameM board ph m ()
 setPlayerState newState = State.modify $ \g -> g{player = newState}
 
 playerPos :: PlayerState ph -> Index ph
@@ -66,7 +70,7 @@ playerPos = \case
     Falling (p, _) -> p
     Running _ (p, _) -> p
 
-playerPosM :: GameM ph m (Index ph)
+playerPosM :: GameM board ph m (Index ph)
 playerPosM = playerPos <$> playerState
 
 canBreathe :: Block -> Bool
@@ -76,10 +80,10 @@ canBreatheAt i = canBreathe <$> blockTypeAt i
 
 blockTypeAt ::
     Index ph ->
-    GameM ph m Block
+    GameM board ph m Block
 blockTypeAt i = State.get >>= (\(Game _ board _) -> lift $ board ! i)
 
-neighbours :: Index ph -> GameM ph m [Index ph]
+neighbours :: Index ph -> GameM board ph m [Index ph]
 neighbours (unIndex -> i) =
     fmap catMaybes
         . mapM justify'
@@ -88,7 +92,7 @@ neighbours (unIndex -> i) =
 -- Allow for uniform treatment of Indices and AdjacentPairs
 -- A lawful instance gives a invertible semigroup action of Dir.
 class Spatial a ph where
-    (.>) :: a -> Dir -> GameM ph m (Maybe a)
+    (.>) :: a -> Dir -> GameM board ph m (Maybe a)
 
 instance Spatial (Index ph) ph where
     i .> dir = justify' (movePos' (unIndex i) dir)
@@ -120,7 +124,7 @@ instance Spatial (Index ph, [Index ph]) ph where
 mi ^> dir = mi >>= \i -> i .> dir
 
 class BlockType a where
-    (.~) :: Index ph -> a -> GameM ph m Bool
+    (.~) :: Index ph -> a -> GameM board ph m Bool
 
 i !~ t = fmap not $ i .~ t
 
@@ -140,7 +144,7 @@ instance BlockType Heavy where
         t <- blockTypeAt i
         return $ t == Stone || t == Fire
 
-(^~) :: (BlockType a) => GameM ph m (Index ph) -> a -> GameM ph m Bool
+(^~) :: (BlockType a) => GameM board ph m (Index ph) -> a -> GameM board ph m Bool
 mi ^~ t = mi >>= \i -> i .~ t
 
 (^&&^) :: (Monad m) => m Bool -> m Bool -> m Bool
@@ -151,6 +155,6 @@ a ==^ ma = (a ==) <$> ma
 
 justify' ::
     Coord ->
-    GameM ph m (Maybe (Index ph))
+    GameM board ph m (Maybe (Index ph))
 justify' i =
     State.get >>= \(Game _ board _) -> lift $ justify board i

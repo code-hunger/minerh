@@ -10,7 +10,7 @@ import Data.Functor ((<&>))
 import Game.Core
 import Game.Update
 
-movePlayer :: Dir -> GameM ph m ()
+movePlayer :: Dir -> GameM board ph m ()
 movePlayer dir =
     let alreadyWantsToDigThere =
             -- if there's alread a dig request registered in that direction,
@@ -22,7 +22,7 @@ movePlayer dir =
             unlessM isFalling $
                 whenJustM (playerPosM ^> dir) doMove
   where
-    doMove :: Index ph -> GameM ph m ()
+    doMove :: Index ph -> GameM board ph m ()
     doMove moveTo = do
         moveFrom <- playerPosM
         nextBlockType <- blockTypeAt moveTo
@@ -43,7 +43,7 @@ movePlayer dir =
             fallingState' <- computeNewFallState moveTo
             State.modify' (\g -> g{player = fallingState'})
 
-runPlayerUp :: Dir -> GameM ph m ()
+runPlayerUp :: Dir -> GameM board ph m ()
 runPlayerUp dir = do
     p <- playerPosM
     whenM isStanding $
@@ -51,8 +51,8 @@ runPlayerUp dir = do
             State.modify' $
                 \g -> g{player = Running dir (p, nextPos)}
 
-isFalling :: GameM ph m Bool
+isFalling :: GameM board ph m Bool
 isFalling = (\case Falling _ -> True; _ -> False) <$> playerState
 
-isStanding :: GameM ph m Bool
+isStanding :: GameM board ph m Bool
 isStanding = (\case Standing _ -> True; _ -> False) <$> playerState

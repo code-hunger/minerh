@@ -8,20 +8,19 @@ import qualified Control.Monad.State.Strict as State
 import Data.Either (partitionEithers)
 import Data.Functor ((<&>))
 
-import Board (Coord (..), Index (unIndex), MBoard (write))
-import BoardGen (mapMM_)
+import Board (Index (), MBoard (write))
 import Game.Core
 
 import Control.Monad.Extra
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
 import Data.Maybe (mapMaybe)
-import Data.Traversable (for)
 
-update :: GameM ph m ()
+update :: GameM board ph m ()
 update = do
     pullMovingPartsDown
     playerState >>= updatePlayerState >>= setPlayerState
 
-updatePlayerState :: forall m ph. PlayerState ph -> GameM ph m (PlayerState ph)
+updatePlayerState :: forall m ph board. PlayerState ph -> GameM board ph m (PlayerState ph)
 updatePlayerState = \case
     Running dir (playerPos_, nextPos) ->
         let stairsNeededAt = case dir of
@@ -65,10 +64,10 @@ updatePlayerState = \case
                     (pure $ Standing playerPos_)
             Nothing -> pure $ Standing playerPos_
   where
-    notOnStairs :: GameM ph m Bool
+    notOnStairs :: GameM board ph m Bool
     notOnStairs = not <$> playerPosM ^~ Stairs
 
-computeNewFallState :: Index ph -> GameM ph m (PlayerState ph)
+computeNewFallState :: Index ph -> GameM board ph m (PlayerState ph)
 computeNewFallState pos =
     ifM
         (pos .~ Stairs)
@@ -86,7 +85,7 @@ computeNewFallState pos =
 -- bottom as a result of a fall.
 data GroundHit ph = GroundHit (Index ph) [Index ph]
 
-pullMovingPartsDown :: GameM ph m ()
+pullMovingPartsDown :: GameM board ph m ()
 pullMovingPartsDown = do
     (Game _ _ movingParts) <- State.get
 
@@ -103,7 +102,7 @@ pullMovingPartsDown = do
     convert (StillFlying nextPosition) = Just $ Right nextPosition
     convert (HitGround ground) = Just $ Left ground
 
-    updateMovingPart :: MovingPart ph -> GameM ph m (MovementOutcome ph)
+    updateMovingPart :: MovingPart ph -> GameM board ph m (MovementOutcome ph)
     updateMovingPart (1, fallOn, movingPart) =
         ifM (fallOn .~ Ground) (pure . HitGround $ GroundHit fallOn movingPart) doPullDown
       where
@@ -130,41 +129,35 @@ data MovementOutcome ph = OutOfBoard | HitGround (GroundHit ph) | StillFlying {n
 write' ::
     Index ph ->
     Block ->
-    GameM ph m ()
+    GameM board ph m ()
 write' i val = State.get >>= (\(Game _ b _) -> lift $ write b i val)
 
 trackDug ::
     Index ph ->
-    GameM ph m (Maybe (AdjacentPair ph))
-trackDug pos = do
-    unlessM (pos .~ Air) $
+    GameM board ph m (Maybe (AdjacentPair ph))
+trackDug pos = runMaybeT $ do
+    unlessM (lift (pos .~ Air)) $
         error "Called track dug on non-air!"
 
-    (pos .> GoUp) >>= \case
-        Nothing -> pure Nothing
-        Just above ->
-            ifM
-                (above .~ Heavy)
-                (pure (Just (pos, above)))
-                (pure Nothing)
+    -- We return only if above exists and is heavy
+    above <- MaybeT (pos .> GoUp)
+    guardM $ above .~ Heavy
+    pure (pos, above)
 
-addToTracked :: Int -> AdjacentPair ph -> GameM ph m ()
+addToTracked :: forall board ph m. Int -> AdjacentPair ph -> GameM board ph m ()
 addToTracked delay (below, above) = do
     logInfo $ "tracking " ++ show below ++ "\n"
     fallingColumn <- go above
     State.modify'
         (\g@(Game _ _ movingParts) -> g{movingParts = (delay, below, fallingColumn) : movingParts})
   where
-    go i =
-        ifM
-            (i .~ Heavy)
-            ( (i .> GoUp) >>= \case
-                Just next -> (i :) <$> go next
-                Nothing -> pure []
-            )
-            (pure [])
+    go i = withMaybe $ do
+        -- We build a list as long as it is heavy and exists
+        guardM (i .~ Heavy)
+        next <- MaybeT (i .> GoUp)
+        lift $ (i :) <$> go next
 
-explodeGroundHits :: [GroundHit ph] -> GameM ph m ()
+explodeGroundHits :: [GroundHit ph] -> GameM board ph m ()
 explodeGroundHits groundHits = do
     explosives <- concatMapM findExplosives groundHits
     go explosives
@@ -186,7 +179,7 @@ explodeGroundHits groundHits = do
 -- The idea is that any fires neighbouring the explosion will explode on their own a bit later.
 runExplosion ::
     [Index ph] ->
-    GameM ph m ([Index ph], [Index ph])
+    GameM board ph m ([Index ph], [Index ph])
 runExplosion is = do
     -- TODO: WRONG! This may break moving parts which are tracked!
     forM_ is (`write'` Air)
@@ -194,5 +187,5 @@ runExplosion is = do
     forM_ rest (`write'` Air)
     pure (firesAround, rest)
 
-logInfo :: String -> GameM ph m ()
+logInfo :: String -> GameM board ph m ()
 logInfo = State.liftIO . appendFile "log"
