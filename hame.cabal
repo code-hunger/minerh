@@ -69,6 +69,7 @@ executable hame
                   , Render.Common
                   , Render.Vty.Core, Render.Vty.Draw
                   , Render.Sdl.Core, Render.Sdl.Draw
+                  , Clock
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -85,6 +86,7 @@ executable hame
                     , async
                     , extra
                     , random
+                    , clock
 
     -- Directories containing source files.
     hs-source-dirs:   app
